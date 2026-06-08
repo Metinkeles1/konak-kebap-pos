@@ -1,0 +1,584 @@
+[
+  {
+    "id": "0b4125c9-602d-446c-a114-71d090b9ece6",
+    "name": "Az Mercimek",
+    "price": 50,
+    "category": "corba",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/az-mercimek-1779655582169.webp",
+    "portionable": false
+  },
+  {
+    "id": "c1",
+    "name": "Süzme Mercimek",
+    "price": 100,
+    "category": "corba",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/suzme-mercimek-1779655572297.webp",
+    "portionable": false
+  },
+  {
+    "id": "c2",
+    "name": "Yayla Çorbası",
+    "price": 120,
+    "category": "corba",
+    "available": false,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/yayla-corbasi-1779655577209.webp",
+    "portionable": false
+  },
+  {
+    "id": "c3",
+    "name": "Kelle Paça",
+    "price": 300,
+    "category": "corba",
+    "available": false,
+    "portionable": false
+  },
+  {
+    "id": "8f63267b-0147-41c0-9237-53cc574b789a",
+    "name": "Tam Tavuk Ekmek",
+    "price": 250,
+    "category": "durum",
+    "available": true,
+    "portionable": true
+  },
+  {
+    "id": "d1",
+    "name": "Adana Dürüm",
+    "price": 275,
+    "category": "durum",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/adana-durum-1779655571335.webp",
+    "portionable": true
+  },
+  {
+    "id": "d2",
+    "name": "Urfa Dürüm",
+    "price": 275,
+    "category": "durum",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/urfa-durum-1779655558939.webp",
+    "portionable": true
+  },
+  {
+    "id": "d3",
+    "name": "Tavuk Şiş Dürüm",
+    "price": 200,
+    "category": "durum",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/tavuk-sis-durum-1779700639134.webp",
+    "portionable": true
+  },
+  {
+    "id": "d4",
+    "name": "Et Şiş Dürüm",
+    "price": 350,
+    "category": "durum",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/et-sis-durum-1779700673866.webp",
+    "portionable": true
+  },
+  {
+    "id": "d5",
+    "name": "Ciğer Dürüm",
+    "price": 350,
+    "category": "durum",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/ciger-durum-1779700705789.webp",
+    "portionable": true
+  },
+  {
+    "id": "d6",
+    "name": "Fırın Dürüm",
+    "price": 300,
+    "category": "durum",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/firin-durum-1779700756932.webp",
+    "portionable": true
+  },
+  {
+    "id": "e66c2e3d-acd7-4964-b051-efd65c1f95b5",
+    "name": "Kola 2.5 lt.",
+    "price": 120,
+    "category": "icecek",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/kola-2-5-lt-1779705949658.webp",
+    "portionable": false
+  },
+  {
+    "id": "i1",
+    "name": "Ayran",
+    "price": 40,
+    "category": "icecek",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/ayran-1779705987577.webp",
+    "portionable": false
+  },
+  {
+    "id": "i2",
+    "name": "Kola/Yedigün",
+    "price": 60,
+    "category": "icecek",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/kola-yedigun-1779706068479.webp",
+    "portionable": false
+  },
+  {
+    "id": "i3",
+    "name": "Gazoz",
+    "price": 60,
+    "category": "icecek",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/gazoz-1779706281776.webp",
+    "portionable": false
+  },
+  {
+    "id": "i4",
+    "name": "Şalgam",
+    "price": 60,
+    "category": "icecek",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/salgam-1779706295657.webp",
+    "portionable": false
+  },
+  {
+    "id": "i5",
+    "name": "Ice Tea",
+    "price": 60,
+    "category": "icecek",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/ice-tea-1779706314817.webp",
+    "portionable": false
+  },
+  {
+    "id": "i6",
+    "name": "Meyve Suyu",
+    "price": 60,
+    "category": "icecek",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/meyve-suyu-1779706356566.webp",
+    "portionable": false
+  },
+  {
+    "id": "i7",
+    "name": "Su",
+    "price": 20,
+    "category": "icecek",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/su-1779706372861.webp",
+    "portionable": false
+  },
+  {
+    "id": "i8",
+    "name": "Meyveli Soda",
+    "price": 50,
+    "category": "icecek",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/meyveli-soda-1779706390677.webp",
+    "portionable": false
+  },
+  {
+    "id": "i9",
+    "name": "Sade Soda",
+    "price": 20,
+    "category": "icecek",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/sade-soda-1779706424828.webp",
+    "portionable": false
+  },
+  {
+    "id": "i10",
+    "name": "Kola 1 Lt",
+    "price": 90,
+    "category": "icecek",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/kola-1-lt-1779706482314.webp",
+    "portionable": false
+  },
+  {
+    "id": "i11",
+    "name": "Ayran 1 Lt",
+    "price": 90,
+    "category": "icecek",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/ayran-1-lt-1779706502383.webp",
+    "portionable": false
+  },
+  {
+    "id": "k1",
+    "name": "Adana Kebap",
+    "price": 400,
+    "category": "kebap",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/adana-kebap-1779655568871.webp",
+    "portionable": true
+  },
+  {
+    "id": "962e7c9a-e873-42ae-beb4-a7fb2702e2e2",
+    "name": "Çiğköfte Porsiyon",
+    "price": 200,
+    "category": "kebap",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/cigkofte-porsiyon-1779655932277.webp",
+    "portionable": true
+  },
+  {
+    "id": "k2",
+    "name": "Urfa Kebap",
+    "price": 400,
+    "category": "kebap",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/urfa-kebap-1779655555430.webp",
+    "portionable": true
+  },
+  {
+    "id": "k3",
+    "name": "Sebzeli Kebap",
+    "price": 400,
+    "category": "kebap",
+    "available": false,
+    "portionable": true
+  },
+  {
+    "id": "k4",
+    "name": "Patlıcanlı Kebap",
+    "price": 550,
+    "category": "kebap",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/patlicanli-kebap-1779655565906.webp",
+    "portionable": true
+  },
+  {
+    "id": "k5",
+    "name": "Domatesli Kebap",
+    "price": 500,
+    "category": "kebap",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/domatesli-kebap-1779655563316.webp",
+    "portionable": true
+  },
+  {
+    "id": "k6",
+    "name": "Karışık Kebap",
+    "price": 1200,
+    "category": "kebap",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/karisik-kebap-1779655560032.webp",
+    "portionable": true
+  },
+  {
+    "id": "k7",
+    "name": "Beyti",
+    "price": 500,
+    "category": "kebap",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/beyti-1779655561293.webp",
+    "portionable": true
+  },
+  {
+    "id": "k8",
+    "name": "Fırın Beyti",
+    "price": 500,
+    "category": "kebap",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/firin-beyti-1779655580810.webp",
+    "portionable": true
+  },
+  {
+    "id": "k9",
+    "name": "Köfte",
+    "price": 500,
+    "category": "kebap",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/kofte-1779700565968.webp",
+    "portionable": true
+  },
+  {
+    "id": "k10",
+    "name": "Konak Köfte",
+    "price": 500,
+    "category": "kebap",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/konak-kofte-1779700592729.webp",
+    "portionable": true
+  },
+  {
+    "id": "k11",
+    "name": "Tavuk Şiş",
+    "price": 350,
+    "category": "kebap",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/tavuk-sis-1779655566670.webp",
+    "portionable": true
+  },
+  {
+    "id": "k12",
+    "name": "Et Şiş",
+    "price": 550,
+    "category": "kebap",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/et-sis-1779655578378.webp",
+    "portionable": true
+  },
+  {
+    "id": "k13",
+    "name": "Kanat",
+    "price": 350,
+    "category": "kebap",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/kanat-1779655557616.webp",
+    "portionable": true
+  },
+  {
+    "id": "k14",
+    "name": "Kanat Yaprak",
+    "price": 400,
+    "category": "kebap",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/kanat-yaprak-1779655575650.webp",
+    "portionable": true
+  },
+  {
+    "id": "k15",
+    "name": "Tavuk Göğüs",
+    "price": 350,
+    "category": "kebap",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/tavuk-gogus-1779657249504.webp",
+    "portionable": true
+  },
+  {
+    "id": "k16",
+    "name": "Tavuk Pirzola",
+    "price": 350,
+    "category": "kebap",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/tavuk-pirzola-1779655574467.webp",
+    "portionable": true
+  },
+  {
+    "id": "k17",
+    "name": "Ciğer",
+    "price": 550,
+    "category": "kebap",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/ciger-1779655562392.webp",
+    "portionable": true
+  },
+  {
+    "id": "k18",
+    "name": "Ali Nazik Kebabı",
+    "price": 550,
+    "category": "kebap",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/ali-nazik-kebabi-1779655579221.webp",
+    "portionable": true
+  },
+  {
+    "id": "k19",
+    "name": "Konak Kebap Spesiyali",
+    "price": 750,
+    "category": "kebap",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/konak-kebap-spesiyali-1779706564476.webp",
+    "portionable": true
+  },
+  {
+    "id": "k20",
+    "name": "Adana İskender",
+    "price": 400,
+    "category": "kebap",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/adana-i-skender-1779657436273.webp",
+    "portionable": true
+  },
+  {
+    "id": "k21",
+    "name": "Yoğurtlu Kebap",
+    "price": 500,
+    "category": "kebap",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/yogurtlu-kebap-1779655580017.webp",
+    "portionable": true
+  },
+  {
+    "id": "k22",
+    "name": "Altı Ezmeli Kebap",
+    "price": 500,
+    "category": "kebap",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/alti-ezmeli-kebap-1779655565151.webp",
+    "portionable": true
+  },
+  {
+    "id": "0eb835b8-2129-4b09-847c-c44ad0c5792d",
+    "name": "Kanat (500gr.)",
+    "price": 450,
+    "category": "kilo",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/kanat-500gr-1779705472479.webp",
+    "portionable": false
+  },
+  {
+    "id": "a901cde5-10c3-4d5e-8a51-c6065af92519",
+    "name": "Kilo Köfte (500 gr.)",
+    "price": 600,
+    "category": "kilo",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/kilo-kofte-500-gr-1779705537232.webp",
+    "portionable": false
+  },
+  {
+    "id": "ki1",
+    "name": "Kilo Kanat",
+    "price": 900,
+    "category": "kilo",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/kilo-kanat-1779705480484.webp",
+    "portionable": false
+  },
+  {
+    "id": "ki2",
+    "name": "Kilo Köfte",
+    "price": 1200,
+    "category": "kilo",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/kilo-kofte-1779705544772.webp",
+    "portionable": false
+  },
+  {
+    "id": "ki3",
+    "name": "Kilo Pirzola",
+    "price": 800,
+    "category": "kilo",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/kilo-pirzola-1779705569454.webp",
+    "portionable": false
+  },
+  {
+    "id": "c2764043-1241-40ce-a216-6b82e1102c0b",
+    "name": "Fındık Lahmacun",
+    "price": 50,
+    "category": "lahmacun",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/findik-lahmacun-1779700446997.webp",
+    "portionable": false
+  },
+  {
+    "id": "l1",
+    "name": "Lahmacun",
+    "price": 100,
+    "category": "lahmacun",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/lahmacun-1779700420317.webp",
+    "portionable": false
+  },
+  {
+    "id": "l2",
+    "name": "Kaşarlı Lahmacun",
+    "price": 120,
+    "category": "lahmacun",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/kasarli-lahmacun-1779700508513.webp",
+    "portionable": false
+  },
+  {
+    "id": "3d578c2f-b214-4af8-8d10-68a0864995af",
+    "name": "Sebzeli Pide",
+    "price": 350,
+    "category": "pide",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/sebzeli-pide-1779700335746.webp",
+    "portionable": true
+  },
+  {
+    "id": "4e01e22c-72db-4f84-91bf-fc6a91b6c9fd",
+    "name": "Yumurta",
+    "price": 30,
+    "category": "pide",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/yumurta-1779700362605.webp",
+    "portionable": true
+  },
+  {
+    "id": "p1",
+    "name": "Kuşbaşı Kaşarlı Pide",
+    "price": 350,
+    "category": "pide",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/kusbasi-kasarli-pide-1779699876996.webp",
+    "portionable": true
+  },
+  {
+    "id": "p2",
+    "name": "Kıymalı Kaşarlı Pide",
+    "price": 300,
+    "category": "pide",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/kiymali-kasarli-pide-1779699900091.webp",
+    "portionable": true
+  },
+  {
+    "id": "p3",
+    "name": "Kavurmalı Kaşarlı Pide",
+    "price": 450,
+    "category": "pide",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/kavurmali-kasarli-pide-1779700103292.webp",
+    "portionable": true
+  },
+  {
+    "id": "p4",
+    "name": "Sucuklu Kaşarlı Pide",
+    "price": 350,
+    "category": "pide",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/sucuklu-kasarli-pide-1779700192885.webp",
+    "portionable": true
+  },
+  {
+    "id": "p5",
+    "name": "Kaşarlı Pide",
+    "price": 300,
+    "category": "pide",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/kasarli-pide-1779700239737.webp",
+    "portionable": true
+  },
+  {
+    "id": "p6",
+    "name": "Karışık Pide",
+    "price": 350,
+    "category": "pide",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/karisik-pide-1779700307063.webp",
+    "portionable": true
+  },
+  {
+    "id": "t1",
+    "name": "Sütlaç",
+    "price": 120,
+    "category": "tatli",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/sutlac-1779705669604.webp",
+    "portionable": false
+  },
+  {
+    "id": "t2",
+    "name": "Künefe",
+    "price": 200,
+    "category": "tatli",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/kunefe-1779705770894.webp",
+    "portionable": false
+  },
+  {
+    "id": "t3",
+    "name": "Katmer",
+    "price": 250,
+    "category": "tatli",
+    "available": true,
+    "image": "https://uvclc7odoy1tnmtx.public.blob.vercel-storage.com/products/katmer-1779705886533.webp",
+    "portionable": false
+  }
+]

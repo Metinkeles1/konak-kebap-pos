@@ -1,0 +1,88 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  /* Kasa/tablet için sabit koyu tema (gündüz tezgahta da net) */
+  background: #0b0f17;
+  color: #e7ecf3;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+/* Pusher ile bir masa güncellenince kart kısa parlar */
+@keyframes vurgu {
+  0% {
+    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.75);
+  }
+  100% {
+    box-shadow: 0 0 0 16px rgba(56, 189, 248, 0);
+  }
+}
+.animate-vurgu {
+  animation: vurgu 1.2s ease-out;
+}
+
+/* Kısmi ödeme / uzun süre uyarısı için yumuşak nabız */
+@keyframes nabiz {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+.animate-nabiz {
+  animation: nabiz 1.8s ease-in-out infinite;
+}
+
+/* ============ KROKİ — Mimari Blueprint ============ */
+
+/* İnce + kalın grid (milimetrik kâğıt hissi) */
+.kroki-zemin {
+  background-color: #0a111e;
+  background-image:
+    linear-gradient(rgba(96, 165, 250, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(96, 165, 250, 0.045) 1px, transparent 1px),
+    linear-gradient(rgba(96, 165, 250, 0.09) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(96, 165, 250, 0.09) 1px, transparent 1px);
+  background-size:
+    20px 20px,
+    20px 20px,
+    100px 100px,
+    100px 100px;
+}
+
+/* Düzenle modunda grid belirginleşir (snap hissi) */
+.kroki-duzenle {
+  background-image:
+    linear-gradient(rgba(96, 165, 250, 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(96, 165, 250, 0.1) 1px, transparent 1px),
+    linear-gradient(rgba(125, 211, 252, 0.18) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(125, 211, 252, 0.18) 1px, transparent 1px);
+}
+
+/* Bölge "oda" çerçevesi — duvar hissi (kalın kenar + iç çizgi) */
+.kroki-oda {
+  border: 2px solid rgba(125, 211, 252, 0.24);
+  border-radius: 18px;
+  box-shadow:
+    inset 0 0 0 1px rgba(125, 211, 252, 0.08),
+    inset 0 0 90px rgba(2, 6, 23, 0.65),
+    0 20px 60px -30px rgba(0, 0, 0, 0.9);
+}
+
+/* Sürüklerken masa hafif kalkar */
+.kroki-kaldir {
+  box-shadow: 0 16px 30px -10px rgba(0, 0, 0, 0.7);
+}

@@ -1,0 +1,84 @@
+// Konak Kebap — Adisyon Sistemi şeması
+// DİKKAT: Burada Urun/UrunGrubu YOK — menü paket API'sinden geliyor (docs/SETUP.md §1).
+// DB sadece masa + adisyon + satılan kalem + tahsilat tutar.
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Bolge {
+  id      Int    @id @default(autoincrement())
+  ad      String
+  sira    Int
+  masalar Masa[]
+}
+
+model Masa {
+  id      Int    @id @default(autoincrement())
+  bolge   Bolge  @relation(fields: [bolgeId], references: [id])
+  bolgeId Int
+  ad      String // "İÇ1", "ÖN3", "ÜST12"
+  durum   String @default("bos") // "bos" | "dolu"
+
+  // --- Kroki konumu: salon ekranda veriden çizilir, koda gömülmez (SETUP §3) ---
+  x     Int    @default(0) // floor-plan x (px)
+  y     Int    @default(0) // floor-plan y (px)
+  en    Int    @default(1) // 1 = tekli, 2 = geniş/birleşik masa
+  sekil String @default("kare") // "kare" | "yuvarlak" | "dikdortgen"
+  tip   String @default("masa") // "masa" | "kasa" (kasa = tıklanamaz mobilya, sayıma girmez)
+
+  adisyonlar Adisyon[]
+
+  @@index([bolgeId])
+}
+
+model Adisyon {
+  id          Int            @id @default(autoincrement())
+  masa        Masa           @relation(fields: [masaId], references: [id])
+  masaId      Int
+  acilis      DateTime       @default(now())
+  kapanis     DateTime?
+  durum       String         @default("acik") // "acik" | "kapali"
+  toplam      Decimal        @default(0) // tüm kalemlerin toplamı
+  odenenTutar Decimal        @default(0) // tutar bazlı tahsilatlar (eşit/serbest bölme)
+  kalemler    AdisyonKalem[]
+  tahsilatlar Tahsilat[]
+
+  @@index([masaId])
+  @@index([durum])
+}
+
+model AdisyonKalem {
+  id         Int      @id @default(autoincrement())
+  adisyon    Adisyon  @relation(fields: [adisyonId], references: [id])
+  adisyonId  Int
+  urunId     String // paket sistemdeki ürün id (örn. "k1")
+  urunAd     String // anlık kopya — menü değişse de geçmiş bozulmaz
+  birimFiyat Decimal
+  adet       Int      @default(1)
+  yarim      Boolean  @default(false) // yarım porsiyon mu
+  durum      String   @default("acik") // "acik" | "odendi" (kalem bazlı bölme için)
+  kaynakMasa String? // birleştirmede geldiği masa adı (örn. "İÇ4")
+  not        String?
+  zaman      DateTime @default(now())
+
+  @@index([adisyonId])
+}
+
+model Tahsilat {
+  id        Int      @id @default(autoincrement())
+  adisyon   Adisyon  @relation(fields: [adisyonId], references: [id])
+  adisyonId Int
+  tutar     Decimal
+  yontem    String // "kalem" | "esit" | "serbest" | "tam"
+  detay     String? // "4 kişiden 1 pay" / "İÇ3 kebap+ayran" gibi açıklama
+  zaman     DateTime @default(now())
+
+  @@index([adisyonId])
+  @@index([zaman]) // gün sonu ciro sorgusu için
+}
