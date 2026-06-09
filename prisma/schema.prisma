@@ -75,7 +75,8 @@ model Tahsilat {
   adisyon   Adisyon  @relation(fields: [adisyonId], references: [id])
   adisyonId Int
   tutar     Decimal
-  yontem    String // "kalem" | "esit" | "serbest" | "tam"
+  yontem    String // bölme yöntemi: "kalem" | "esit" | "serbest" | "tam"
+  arac      String   @default("nakit") // ödeme aracı: "nakit" | "kart" | "yemek" | "havale"
   detay     String? // "4 kişiden 1 pay" / "İÇ3 kebap+ayran" gibi açıklama
   zaman     DateTime @default(now())
 

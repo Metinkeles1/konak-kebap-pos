@@ -22,7 +22,7 @@ import {
 } from '@dnd-kit/core';
 import type { MasaOzet, SalonOzet } from '@/lib/types';
 import { MasaKart } from '@/components/MasaKart';
-import { KasaKart } from '@/components/KasaKart';
+import { SabitEleman } from '@/components/SabitEleman';
 import { HIZA_ESIK, hizalaMerkez, masaBoyut, sekilBilgi } from '@/lib/kroki';
 import { para } from '@/lib/format';
 import { useNow } from '@/lib/useNow';
@@ -54,7 +54,9 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
     y: null,
   });
   const [onay, setOnay] = useState<Onay | null>(null);
+  const [olcek, setOlcek] = useState(1);
   const surukleRef = useRef(false);
+  const kapsayiciRef = useRef<HTMLDivElement | null>(null);
   const router = useRouter();
   const now = useNow(20000);
 
@@ -163,8 +165,8 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
       const m = masalar.find((mm) => mm.id === id);
       if (!m) return;
       const b = masaBoyut(m);
-      const cx = m.x + e.delta.x + b.w / 2;
-      const cy = m.y + e.delta.y + b.h / 2;
+      const cx = m.x + e.delta.x / olcek + b.w / 2;
+      const cy = m.y + e.delta.y / olcek + b.h / 2;
       let gx: number | null = null;
       let gy: number | null = null;
       for (const mm of masalar) {
@@ -177,7 +179,7 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
       }
       setKilavuz({ x: gx, y: gy });
     },
-    [masalar]
+    [masalar, olcek]
   );
 
   const onDuzenleEnd = useCallback(
@@ -190,11 +192,16 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
       const digerleri = masalar
         .filter((mm) => mm.id !== id)
         .map((mm) => ({ x: mm.x, y: mm.y, ...masaBoyut(mm) }));
-      const { x, y } = hizalaMerkez(m.x + e.delta.x, m.y + e.delta.y, b, digerleri);
+      const { x, y } = hizalaMerkez(
+        m.x + e.delta.x / olcek,
+        m.y + e.delta.y / olcek,
+        b,
+        digerleri
+      );
       setSeciliMasaId(id);
       guncelleMasa(id, { x, y });
     },
-    [masalar, guncelleMasa]
+    [masalar, guncelleMasa, olcek]
   );
 
   // ---- Normal mod: bir masayı diğerine sürükle = taşı/birleştir ----
@@ -253,6 +260,24 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
     return { w: mw + 48, h: Math.max(mh + 56, 380) };
   }, [masalar]);
 
+  // Krokiyi kapsayıcı alana otomatik sığdır (zoom). Boş alanı doldurur; büyük
+  // ekranda büyür, küçük ekranda küçülür. Ölçek sürükleme matematiğine de yansır.
+  useEffect(() => {
+    const el = kapsayiciRef.current;
+    if (!el) return;
+    const hesapla = () => {
+      const cw = el.clientWidth - 24; // p-3 payı
+      const ch = el.clientHeight - 24;
+      if (cw <= 0 || ch <= 0) return;
+      const k = Math.min(cw / w, ch / h);
+      setOlcek(Math.max(0.45, Math.min(k, 2.4)));
+    };
+    hesapla();
+    const ro = new ResizeObserver(hesapla);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [w, h]);
+
   const toggleDuzenle = () => {
     setDuzenle((v) => !v);
     setSeciliMasaId(null);
@@ -261,7 +286,7 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
   const o = data.ozet;
 
   return (
-    <div className="flex flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       {/* Üst bar */}
       <header className="flex items-center justify-between gap-3 border-b border-slate-800 bg-slate-900/60 px-4 py-3 backdrop-blur">
         <div className="flex items-baseline gap-2">
@@ -333,13 +358,13 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
           </code>
         </div>
       ) : (
-        <div className="flex-1 overflow-auto p-4">
+        <div className="min-h-0 flex-1">
           {/* Telefon: tek/iki kolon liste */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:hidden">
+          <div className="grid grid-cols-2 gap-3 overflow-auto p-4 sm:grid-cols-3 md:hidden">
             {masalar.map((m) =>
               m.tip !== 'masa' ? (
                 <div key={m.id} className="h-26">
-                  <KasaKart masa={m} />
+                  <SabitEleman masa={m} />
                 </div>
               ) : (
                 <button
@@ -358,19 +383,30 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
             )}
           </div>
 
-          {/* Tablet/Kasa: blueprint floor-plan */}
-          <div className="hidden md:block">
+          {/* Tablet/Kasa: blueprint floor-plan — alana otomatik sığar (zoom) */}
+          <div
+            ref={kapsayiciRef}
+            className="hidden h-full min-h-0 overflow-auto p-3 md:flex md:items-center md:justify-center"
+          >
             <div
-              onClick={() => duzenle && setSeciliMasaId(null)}
-              className={`kroki-oda kroki-zemin relative mx-auto ${
-                duzenle ? 'kroki-duzenle' : ''
-              }`}
-              style={{ width: w, height: h }}
+              className="relative shrink-0"
+              style={{ width: w * olcek, height: h * olcek }}
             >
+              <div
+                onClick={() => duzenle && setSeciliMasaId(null)}
+                className={`kroki-oda kroki-zemin absolute left-0 top-0 ${
+                  duzenle ? 'kroki-duzenle' : ''
+                }`}
+                style={{
+                  width: w,
+                  height: h,
+                  transform: `scale(${olcek})`,
+                  transformOrigin: 'top left',
+                }}
+              >
               <span className="pointer-events-none absolute left-4 top-2.5 z-0 text-[11px] font-semibold uppercase tracking-[0.3em] text-sky-300/35">
                 {aktif?.ad}
               </span>
-              <GirisKapi />
 
               {/* Canlı hizalama kılavuzları (düzenle) */}
               {duzenle && kilavuz.x !== null && (
@@ -399,6 +435,7 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
                       now={now}
                       vurgulu={vurgu.has(m.id)}
                       secili={seciliMasaId === m.id}
+                      olcek={olcek}
                       onSelect={() => setSeciliMasaId(m.id)}
                     />
                   ))}
@@ -419,7 +456,7 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
                           className="absolute"
                           style={{ left: m.x, top: m.y, width: b.w, height: b.h }}
                         >
-                          <KasaKart masa={m} />
+                          <SabitEleman masa={m} />
                         </div>
                       );
                     }
@@ -430,12 +467,14 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
                         now={now}
                         vurgulu={vurgu.has(m.id)}
                         bekleyen={bekleyenId === m.id}
+                        olcek={olcek}
                         onAc={acMasa}
                       />
                     );
                   })}
                 </DndContext>
               )}
+              </div>
             </div>
           </div>
         </div>
@@ -563,38 +602,20 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
   );
 }
 
-// Oda kapısı + GİRİŞ (dekoratif, alt kenar ortası)
-function GirisKapi() {
-  return (
-    <div className="pointer-events-none absolute bottom-1.5 left-1/2 z-0 flex -translate-x-1/2 flex-col items-center">
-      <div
-        style={{
-          width: 42,
-          height: 42,
-          borderTop: '1.5px solid rgba(125,211,252,0.4)',
-          borderLeft: '1.5px solid rgba(125,211,252,0.4)',
-          borderTopLeftRadius: '100%',
-        }}
-      />
-      <span className="mt-0.5 text-[9px] font-semibold uppercase tracking-[0.35em] text-sky-300/45">
-        GİRİŞ
-      </span>
-    </div>
-  );
-}
-
 // Düzenle modu: konum sürükleme + şekil seçimi
 function SuruklenebilirMasa({
   masa,
   now,
   vurgulu,
   secili,
+  olcek,
   onSelect,
 }: {
   masa: MasaOzet;
   now: number;
   vurgulu?: boolean;
   secili?: boolean;
+  olcek: number;
   onSelect: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
@@ -618,7 +639,7 @@ function SuruklenebilirMasa({
         width: b.w,
         height: b.h,
         transform: transform
-          ? `translate3d(${transform.x}px, ${transform.y}px, 0)`
+          ? `translate3d(${transform.x / olcek}px, ${transform.y / olcek}px, 0)`
           : undefined,
         zIndex: isDragging ? 50 : secili ? 30 : undefined,
         touchAction: 'none',
@@ -627,7 +648,7 @@ function SuruklenebilirMasa({
       }}
     >
       {masa.tip !== 'masa' ? (
-        <KasaKart masa={masa} />
+        <SabitEleman masa={masa} />
       ) : (
         <MasaKart masa={masa} now={now} vurgulu={vurgulu} secili={secili} />
       )}
@@ -641,12 +662,14 @@ function SalonMasa({
   now,
   vurgulu,
   bekleyen,
+  olcek,
   onAc,
 }: {
   masa: MasaOzet;
   now: number;
   vurgulu?: boolean;
   bekleyen?: boolean;
+  olcek: number;
   onAc: (m: MasaOzet) => void;
 }) {
   const drag = useDraggable({ id: `d${masa.id}`, data: { masa } });
@@ -671,7 +694,7 @@ function SalonMasa({
         width: b.w,
         height: b.h,
         transform: drag.transform
-          ? `translate3d(${drag.transform.x}px, ${drag.transform.y}px, 0)`
+          ? `translate3d(${drag.transform.x / olcek}px, ${drag.transform.y / olcek}px, 0)`
           : undefined,
         zIndex: drag.isDragging ? 50 : hedef ? 20 : undefined,
         touchAction: 'none',

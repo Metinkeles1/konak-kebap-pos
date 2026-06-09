@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { kapatKontrol } from '@/lib/hesap';
+import { gecerliArac } from '@/lib/odeme';
 import { tetikle } from '@/lib/pusher-server';
 import { OLAY_ADISYON_KAPANDI, OLAY_MASA, SALON_KANAL } from '@/lib/realtime';
 
 // Kalem bazlı bölme ("kim ne yediyse"): seçili kalemler 'odendi' işaretlenir, KALAN düşer.
 export async function POST(req: Request) {
-  const { adisyonId, kalemIds } = await req.json();
+  const { adisyonId, kalemIds, arac } = await req.json();
   if (
     typeof adisyonId !== 'number' ||
     !Array.isArray(kalemIds) ||
@@ -35,6 +36,7 @@ export async function POST(req: Request) {
         adisyonId,
         tutar,
         yontem: 'kalem',
+        arac: gecerliArac(arac),
         detay: `${kalemler.length} kalem`,
       },
     });

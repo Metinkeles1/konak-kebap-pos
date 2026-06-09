@@ -9,8 +9,10 @@ const KEY = process.env.NEXT_PUBLIC_PUSHER_KEY;
 const CLUSTER = process.env.NEXT_PUBLIC_PUSHER_CLUSTER;
 
 // Anahtar yoksa null — istemci tarafı senkronu devre dışı (sayfa yenileme ile güncellenir).
+// SADECE tarayıcıda oluştur: SSR'da pusher-js'in node derlemesi yüklenip "default is
+// not a constructor" hatası veriyor. typeof window guard'ı bunu engeller.
 export const pusherClient =
-  gercek(KEY) && gercek(CLUSTER)
+  typeof window !== 'undefined' && gercek(KEY) && gercek(CLUSTER)
     ? new PusherClient(KEY!, { cluster: CLUSTER! })
     : null;
 

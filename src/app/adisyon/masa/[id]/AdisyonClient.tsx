@@ -12,6 +12,7 @@ import { useRouter } from 'next/navigation';
 import type { AdisyonDetay, HedefMasa, KalemDetay } from '@/lib/adisyon';
 import type { Urun, UrunGrubu } from '@/lib/menu';
 import { gecenSure, para } from '@/lib/format';
+import { ODEME_ARACLARI, type OdemeArac } from '@/lib/odeme';
 import { useNow } from '@/lib/useNow';
 import { AdisyonFis } from '@/components/receipt/AdisyonFis';
 
@@ -47,6 +48,7 @@ export function AdisyonClient({
   const [kisiSayisi, setKisiSayisi] = useState(2);
   const [odenenPay, setOdenenPay] = useState(1);
   const [serbestTutar, setSerbestTutar] = useState('');
+  const [arac, setArac] = useState<OdemeArac>('nakit'); // seçili ödeme aracı
   const [islem, setIslem] = useState(false);
   const [hata, setHata] = useState<string | null>(null);
 
@@ -222,13 +224,13 @@ export function AdisyonClient({
 
   const hesabiKapat = () =>
     adisyonId &&
-    api('/api/odeme/tam', { adisyonId }, () => router.push('/adisyon'));
+    api('/api/odeme/tam', { adisyonId, arac }, () => router.push('/adisyon'));
 
   const odeKalem = () =>
     adisyonId &&
     api(
       '/api/odeme/kalem',
-      { adisyonId, kalemIds: [...secili] },
+      { adisyonId, kalemIds: [...secili], arac },
       kapatVeyaTazele
     );
 
@@ -236,7 +238,7 @@ export function AdisyonClient({
     adisyonId &&
     api(
       '/api/odeme/esit',
-      { adisyonId, kisiSayisi, odenenPay },
+      { adisyonId, kisiSayisi, odenenPay, arac },
       kapatVeyaTazele
     );
 
@@ -247,7 +249,7 @@ export function AdisyonClient({
       return;
     }
     setSerbestTutar('');
-    api('/api/odeme/serbest', { adisyonId, tutar }, kapatVeyaTazele);
+    api('/api/odeme/serbest', { adisyonId, tutar, arac }, kapatVeyaTazele);
   };
 
   const masaTasi = (hedefMasaId: number) =>
@@ -272,9 +274,9 @@ export function AdisyonClient({
   const pay = kisiSayisi > 0 ? optToplam / kisiSayisi : 0;
 
   return (
-    <div className="flex flex-1 flex-col md:flex-row">
+    <div className="flex min-h-0 flex-1 flex-col md:flex-row">
       {/* SOL — Menü */}
-      <div className="flex flex-1 flex-col border-b border-slate-800 md:border-b-0 md:border-r">
+      <div className="flex min-h-0 flex-1 flex-col border-b border-slate-800 md:border-b-0 md:border-r">
         <header className="flex items-center gap-3 border-b border-slate-800 bg-slate-900/60 px-4 py-3">
           <Link
             href="/adisyon"
@@ -292,7 +294,7 @@ export function AdisyonClient({
           </div>
         </header>
 
-        <div className="flex gap-1 overflow-x-auto border-b border-slate-800 px-3 py-2">
+        <div className="no-scrollbar flex gap-1 overflow-x-auto border-b border-slate-800 px-3 py-2">
           {gruplar.map((g) => (
             <button
               key={g.key}
@@ -308,8 +310,9 @@ export function AdisyonClient({
           ))}
         </div>
 
-        <div className="grid flex-1 grid-cols-3 content-start gap-2 overflow-auto p-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-          {aktifGrup?.urunler.map((u) => (
+        <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto p-3">
+          <div className="grid grid-cols-3 content-start gap-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+            {aktifGrup?.urunler.map((u) => (
             <button
               key={u.id}
               onClick={() => acEkle(u)}
@@ -353,11 +356,12 @@ export function AdisyonClient({
               </div>
             </button>
           ))}
+          </div>
         </div>
       </div>
 
       {/* SAĞ — Hesap */}
-      <aside className="flex w-full flex-col bg-slate-900/40 md:w-96">
+      <aside className="flex max-h-[45vh] min-h-0 w-full flex-col bg-slate-900/40 md:max-h-none md:w-96">
         <div className="flex items-center justify-between gap-2 border-b border-slate-800 px-4 py-3">
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-slate-300">Hesap</span>
@@ -377,7 +381,7 @@ export function AdisyonClient({
           )}
         </div>
 
-        <div className="flex-1 overflow-auto px-2 py-2">
+        <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 py-2">
           {optimistikKalemler.length === 0 ? (
             <p className="px-2 py-8 text-center text-sm text-slate-500">
               Henüz ürün eklenmedi. Soldan seç.
@@ -455,14 +459,38 @@ export function AdisyonClient({
           )}
 
           {adisyonId && (
-            <div className="mt-3 grid grid-cols-3 gap-2">
-              <button
-                onClick={hesabiKapat}
-                disabled={islem || optKalan <= 0.001}
-                className="rounded-lg bg-emerald-600 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
-              >
-                Hesabı Kapat
-              </button>
+            <>
+              {/* Ödeme aracı — tüm tahsilat aksiyonları bunu kullanır */}
+              <div className="mt-3">
+                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Ödeme aracı
+                </div>
+                <div className="grid grid-cols-4 gap-1 rounded-lg bg-slate-800/60 p-1">
+                  {ODEME_ARACLARI.map((a) => (
+                    <button
+                      key={a.key}
+                      onClick={() => setArac(a.key)}
+                      className={`flex flex-col items-center gap-0.5 rounded-md py-1.5 text-[11px] font-medium transition-colors ${
+                        arac === a.key
+                          ? 'bg-sky-400 text-slate-900'
+                          : 'text-slate-300 hover:bg-slate-700'
+                      }`}
+                    >
+                      <span className="text-sm leading-none">{a.ikon}</span>
+                      {a.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-3 grid grid-cols-3 gap-2">
+                <button
+                  onClick={hesabiKapat}
+                  disabled={islem || optKalan <= 0.001}
+                  className="rounded-lg bg-emerald-600 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+                >
+                  Hesabı Kapat
+                </button>
               <button
                 onClick={() => {
                   setHata(null);
@@ -483,7 +511,8 @@ export function AdisyonClient({
               >
                 Masa
               </button>
-            </div>
+              </div>
+            </>
           )}
         </div>
       </aside>

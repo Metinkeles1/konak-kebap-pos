@@ -18,9 +18,27 @@ export function sekilBilgi(sekil: string) {
   return { dikdortgen, dikey, yuvarlak };
 }
 
-// Masanın krokideki toplam footprint'i (sandalyeler dahil).
+// Sabit elemanların (mobilya/dekor) temel ölçüsü. uzun = uzun kenar, kisa =
+// kısa kenar. Yön `sekil` ('dikdortgen-d' = dikey), uzunluk `en` (>=2 ise %50
+// uzar) ile ayarlanır — masalardaki kodlamanın aynısı, DB değişikliği yok.
+export const SABIT_BOYUT: Record<string, { uzun: number; kisa: number }> = {
+  kasa: { uzun: 130, kisa: 58 },
+  tezgah: { uzun: 240, kisa: 54 },
+  ocak: { uzun: 92, kisa: 92 },
+  merdiven: { uzun: 210, kisa: 88 },
+  kapi: { uzun: 96, kisa: 18 },
+  gecit: { uzun: 230, kisa: 74 },
+};
+
+// Masanın krokideki toplam footprint'i (sandalyeler dahil). Sabit elemanlarda
+// sandalye yok; kendi SABIT_BOYUT ölçüsünü kullanır.
 export function masaBoyut(m: MasaOzet): Boyut {
-  if (m.tip === 'kasa') return { w: 130, h: 58 };
+  if (m.tip !== 'masa') {
+    const base = SABIT_BOYUT[m.tip] ?? SABIT_BOYUT.kasa;
+    const dikey = m.sekil === 'dikdortgen-d';
+    const uzun = m.en >= 2 ? Math.round(base.uzun * 1.5) : base.uzun;
+    return dikey ? { w: base.kisa, h: uzun } : { w: uzun, h: base.kisa };
+  }
   const { dikdortgen, dikey } = sekilBilgi(m.sekil);
   if (dikdortgen) {
     const uzun = m.en >= 2 ? 162 : 126;

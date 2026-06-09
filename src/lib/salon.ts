@@ -1,7 +1,7 @@
 import { db } from './db';
 import { gunAraligi } from './gun';
 import { kalanHesapla } from './hesap';
-import type { AdisyonOzet, BolgeOzet, SalonOzet } from './types';
+import type { AdisyonOzet, BolgeOzet, MasaTip, SalonOzet } from './types';
 
 // Floor-plan verisi: bölgeler + masalar + her masanın açık adisyon özeti + üst özet.
 // Hem /adisyon sayfası (SSR) hem /api/salon (realtime refetch) bunu kullanır.
@@ -41,7 +41,7 @@ export async function getSalon(): Promise<SalonOzet> {
           y: m.y,
           en: m.en,
           sekil: m.sekil,
-          tip: m.tip as 'kasa',
+          tip: m.tip as MasaTip,
           adisyon: null,
         };
       }

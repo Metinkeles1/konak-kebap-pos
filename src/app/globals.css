@@ -19,6 +19,15 @@ body {
   overscroll-behavior: none;
 }
 
+/* İç scroll var ama çubuğu gizli (masaüstü POS hissi). İçerik yine kaydırılır. */
+.no-scrollbar {
+  -ms-overflow-style: none; /* IE/Edge */
+  scrollbar-width: none; /* Firefox */
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none; /* Chrome/Safari/Edge */
+}
+
 /* Pusher ile bir masa güncellenince kart kısa parlar */
 @keyframes vurgu {
   0% {
