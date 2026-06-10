@@ -15,12 +15,19 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Konak Kebap · Adisyon",
   description: "Masa/adisyon takip sistemi",
+  applicationName: "Konak Kebap",
+  appleWebApp: {
+    capable: true,
+    title: "Konak Kebap",
+    statusBarStyle: "black-translucent",
+  },
 };
 
 export const viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
+  themeColor: "#1a1a1a",
 };
 
 export default function RootLayout({

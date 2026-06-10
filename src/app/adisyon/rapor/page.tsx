@@ -35,6 +35,12 @@ export default async function RaporPage({
             ← Salon
           </Link>
           <h1 className="text-lg font-bold">Gün Sonu</h1>
+          <Link
+            href={`/adisyon/gecmis?tarih=${r.tarih}`}
+            className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
+          >
+            🧾 Masa Geçmişi
+          </Link>
         </div>
 
         {/* Tarih navigasyonu */}
@@ -74,7 +80,7 @@ export default async function RaporPage({
 
       <div className="mx-auto max-w-3xl space-y-6 p-4 sm:p-6">
         {/* Toplam ciro */}
-        <section className="rounded-2xl border border-slate-800 bg-gradient-to-br from-emerald-500/10 to-slate-900/40 p-5">
+        <section className="rounded-2xl border border-slate-800 bg-linear-to-br from-emerald-500/10 to-slate-900/40 p-5">
           <div className="text-sm font-medium uppercase tracking-wide text-emerald-300/70">
             Toplam Satış (Ciro)
           </div>

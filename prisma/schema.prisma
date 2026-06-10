@@ -76,7 +76,13 @@ model AdisyonKalem {
   not        String?
   zaman      DateTime @default(now())
 
+  // Kalem bazlı tahsilatta bu kalemi hangi ödeme kapadı — tahsilat geri
+  // alınınca kalemi tekrar "acik" yapabilmek için (gün sonu/geçmiş düzenleme).
+  tahsilat   Tahsilat? @relation(fields: [tahsilatId], references: [id])
+  tahsilatId Int?
+
   @@index([adisyonId])
+  @@index([tahsilatId])
 }
 
 model Tahsilat {
@@ -88,6 +94,8 @@ model Tahsilat {
   arac      String   @default("nakit") // ödeme aracı: "nakit" | "kart" | "yemek" | "havale"
   detay     String? // "4 kişiden 1 pay" / "İÇ3 kebap+ayran" gibi açıklama
   zaman     DateTime @default(now())
+
+  kalemler  AdisyonKalem[] // kalem bazlı ödemede kapatılan kalemler (geri alma için)
 
   @@index([adisyonId])
   @@index([zaman]) // gün sonu ciro sorgusu için

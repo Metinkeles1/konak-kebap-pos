@@ -370,6 +370,12 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
         </div>
         <div className="flex items-center gap-2">
           <Link
+            href="/adisyon/gecmis"
+            className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
+          >
+            🧾 Geçmiş
+          </Link>
+          <Link
             href="/adisyon/rapor"
             className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
           >

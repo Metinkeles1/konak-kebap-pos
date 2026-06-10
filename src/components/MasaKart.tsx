@@ -70,7 +70,7 @@ export function MasaKart({
     'border border-slate-400/35 bg-slate-800/50 text-slate-300 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.08)]';
   if (a)
     durum =
-      'border border-amber-400/60 bg-gradient-to-br from-amber-400/25 to-amber-600/10 text-amber-50 shadow-[0_0_28px_-6px_rgba(245,158,11,0.6)]';
+      'border border-amber-400/60 bg-linear-to-br from-amber-400/25 to-amber-600/10 text-amber-50 shadow-[0_0_28px_-6px_rgba(245,158,11,0.6)]';
   if (kismi)
     durum =
       'border-2 border-dashed border-amber-300/70 bg-amber-400/12 text-amber-50 shadow-[0_0_24px_-6px_rgba(245,158,11,0.5)]';

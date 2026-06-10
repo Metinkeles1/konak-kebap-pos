@@ -3,21 +3,33 @@
 import {
   useMemo,
   useOptimistic,
+  useRef,
   useState,
   useTransition,
   type ReactNode,
 } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import type { AdisyonDetay, HedefMasa, KalemDetay } from '@/lib/adisyon';
+import type {
+  AdisyonDetay,
+  HedefMasa,
+  IptalKaydi,
+  KalemDetay,
+} from '@/lib/adisyon';
 import type { Urun, UrunGrubu } from '@/lib/menu';
 import { gecenSure, para } from '@/lib/format';
 import { ODEME_ARACLARI, type OdemeArac } from '@/lib/odeme';
 import { useNow } from '@/lib/useNow';
 import { AdisyonFis } from '@/components/receipt/AdisyonFis';
+import { Ikon, type IkonAd } from '@/components/PosIkon';
 
 type Modal = null | 'bol' | 'masa' | 'kalemTasi' | 'fis' | 'indirim';
-type BolYontem = 'kalem' | 'esit' | 'serbest';
+// Ürün bazlı bölme zaten "hesaptan seç + Öde" ile yapılır; Böl modalı yalnızca
+// modal gerektiren iki yöntem içindir.
+type BolYontem = 'esit' | 'serbest';
+
+// Ödeme aracı seçicide dar sütuna sığan kısa etiketler.
+const ARAC_KISA: Record<string, string> = { yemek: 'Yemek' };
 
 // Optimistik kalem güncellemeleri (ekle / düzenle / sil) — hesaba ANINDA yansır.
 type OptAksiyon =
@@ -63,7 +75,7 @@ export function AdisyonClient({
   const [aktifKat, setAktifKat] = useState<string>(gruplar[0]?.key ?? '');
   const [secili, setSecili] = useState<Set<number>>(new Set());
   const [modal, setModal] = useState<Modal>(null);
-  const [bolYontem, setBolYontem] = useState<BolYontem>('kalem');
+  const [bolYontem, setBolYontem] = useState<BolYontem>('esit');
   const [kisiSayisi, setKisiSayisi] = useState(2);
   const [odenenPay, setOdenenPay] = useState(1);
   const [serbestTutar, setSerbestTutar] = useState('');
@@ -109,6 +121,20 @@ export function AdisyonClient({
   );
   const [, baslat] = useTransition();
 
+  // Tutar bazlı ödemeler (eşit/serbest/tam) KALAN'dan ANINDA düşsün; refresh
+  // gelince detay.tahsilatToplam'a yansıyıp bu optimistik değer 0'a sıfırlanır.
+  const [optEkstraOdenen, ekstraOdenenEkle] = useOptimistic(
+    0,
+    (s: number, miktar: number) => s + miktar
+  );
+
+  // İptal edilen kalem, alttaki "İptaller" listesinde de ANINDA görünsün
+  // (yoksa refresh'e kadar gecikip "geriden geliyor" hissi verir).
+  const [optIptaller, iptalEkle] = useOptimistic(
+    detay.iptaller,
+    (s: IptalKaydi[], yeni: IptalKaydi) => [...s, yeni]
+  );
+
   // Optimistik toplam / KALAN (anında güncellensin). İkram toplama girmez;
   // indirim toplamdan düşer (yüzdeyse optimistik toplam üstünden anlık kayar).
   const optToplam = optimistikKalemler
@@ -122,7 +148,9 @@ export function AdisyonClient({
   const optKalemOdenen = optimistikKalemler
     .filter((k) => k.durum === 'odendi' && !k.ikram)
     .reduce((s, k) => s + k.birimFiyat * k.adet, 0);
-  const optKalan = optToplam - optIndirim - optKalemOdenen - detay.odenenTutar;
+  const optKalan =
+    optToplam - optIndirim - optKalemOdenen - detay.odenenTutar - optEkstraOdenen;
+  const kalemAdet = optimistikKalemler.reduce((s, k) => s + k.adet, 0);
 
   // Kalemleri kaynakMasa'ya göre grupla (kendi + birleştirmeden gelenler)
   const { kendi, ekGruplar } = useMemo(() => {
@@ -168,15 +196,20 @@ export function AdisyonClient({
     return j.adisyonId as number;
   }
 
-  // Ürüne dokun → varsayılan ayarla ANINDA sepete. Aynı sade ürüne tekrar
-  // dokunulursa yeni satır açmak yerine mevcut satırın adedini artırır.
+  // Kalem ekleme isteklerini sıraya alır: aynı adisyona eşzamanlı create
+  // gitmesin ki sunucudaki "sade satır birleştirme" yarışa girmesin (yoksa
+  // 5 hızlı dokunuş 5 ayrı satır olur). Optimistik UI yine ANINDA güncellenir.
+  const ekleKuyrukRef = useRef<Promise<void>>(Promise.resolve());
+
+  // Ürüne dokun → ANINDA sepete (optimistik). Aynı sade ürüne tekrar dokunulursa
+  // yeni satır yerine adet artar; gerçek adet artışını sunucu atomik yapar.
   function hizliEkle(urun: Urun) {
     if (!urun.available) return;
     setHata(null);
-    // mevcut: kalıcı (kaydedilmiş) + sade (yarımsız/notsuz/ikramsız/açık/kendi) satır
+    // Sade satır = yarımsız/notsuz/ikramsız/açık/kendi. Optimistikte id'si ne
+    // olursa olsun (henüz kaydedilmemiş geçici satır dahil) eşleştir.
     const mevcut = optimistikKalemler.find(
       (k) =>
-        k.id > 0 &&
         k.urunId === urun.id &&
         !k.yarim &&
         !k.ikram &&
@@ -186,55 +219,63 @@ export function AdisyonClient({
     );
 
     baslat(async () => {
+      const geciciId = -Date.now();
+      // Optimistik: varsa adedi artır, yoksa yeni satır → ekranda tek satır sayar.
       if (mevcut) {
-        const yeniAdet = mevcut.adet + 1;
-        optimistikUygula({ tip: 'guncelle', id: mevcut.id, veri: { adet: yeniAdet } });
-        try {
-          await fetch('/api/kalem/guncelle', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              kalemId: mevcut.id,
-              birimFiyat: mevcut.birimFiyat, // satırın kilitli fiyatı korunur
-              adet: yeniAdet,
-              yarim: false,
-              not: null,
-            }),
-          });
-        } catch {
-          /* sessiz geç — refresh gerçeği geri getirir */
-        }
+        optimistikUygula({
+          tip: 'guncelle',
+          id: mevcut.id,
+          veri: { adet: mevcut.adet + 1 },
+        });
       } else {
-        const optimistik: KalemDetay = {
-          id: -Date.now(),
-          urunId: urun.id,
-          urunAd: urun.name,
-          birimFiyat: urun.price,
-          adet: 1,
-          yarim: false,
-          ikram: false,
-          durum: 'acik',
-          kaynakMasa: null,
-          not: null,
-        };
-        optimistikUygula({ tip: 'ekle', kalem: optimistik });
-        try {
-          const aid = await ensureAdisyon();
-          await fetch('/api/kalem', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              adisyonId: aid,
-              urunId: urun.id,
-              urunAd: urun.name,
-              birimFiyat: urun.price,
-              adet: 1,
-              yarim: false,
-            }),
-          });
-        } catch {
-          /* sessiz geç */
-        }
+        optimistikUygula({
+          tip: 'ekle',
+          kalem: {
+            id: geciciId,
+            urunId: urun.id,
+            urunAd: urun.name,
+            birimFiyat: urun.price,
+            adet: 1,
+            yarim: false,
+            ikram: false,
+            durum: 'acik',
+            kaynakMasa: null,
+            not: null,
+          },
+        });
+      }
+
+      // Ağ çağrısını sıraya al: her zaman create — sunucu aynı sade satırı bulup
+      // adedini ATOMİK artırır (sade.adet + 1). Sıralı olduğu için yarış yok.
+      let yeniKalemId: number | undefined;
+      await (ekleKuyrukRef.current = ekleKuyrukRef.current
+        .catch(() => {})
+        .then(async () => {
+          try {
+            const aid = await ensureAdisyon();
+            const res = await fetch('/api/kalem', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                adisyonId: aid,
+                urunId: urun.id,
+                urunAd: urun.name,
+                birimFiyat: urun.price,
+                adet: 1,
+                yarim: false,
+              }),
+            });
+            const j = await res.json().catch(() => ({}));
+            if (typeof j?.kalemId === 'number') yeniKalemId = j.kalemId;
+          } catch {
+            /* sessiz geç — refresh gerçeği geri getirir */
+          }
+        }));
+
+      // Gerçek id gelince yeni optimistik satırın geçici id'sini değiştir →
+      // refresh beklemeden kalem düzenlenebilir/silinebilir olur.
+      if (!mevcut && yeniKalemId !== undefined) {
+        optimistikUygula({ tip: 'guncelle', id: geciciId, veri: { id: yeniKalemId } });
       }
       router.refresh();
     });
@@ -329,6 +370,13 @@ export function AdisyonClient({
     setHata(null);
     baslat(async () => {
       optimistikUygula({ tip: 'sil', id: k.id });
+      iptalEkle({
+        id: -Date.now(),
+        urunAd: k.urunAd,
+        adet: k.adet,
+        tutar: k.ikram ? 0 : k.birimFiyat * k.adet,
+        zaman: new Date().toISOString(),
+      });
       let kapandi = false;
       try {
         const r = await fetch('/api/kalem/guncelle', {
@@ -388,30 +436,62 @@ export function AdisyonClient({
     }
   }
 
-  const kapatVeyaTazele = (j: { kapandi?: boolean }) => {
-    if (j.kapandi) router.push('/adisyon');
-    else router.refresh();
+  // Optimistik ödeme: KALAN/kalemler ANINDA güncellenir; ağ + refresh ARKADA
+  // çalışır (delay hissi olmaz). Hata olursa transition biter ve optimistik
+  // değişiklik kendiliğinden geri alınır, KALAN eski haline döner.
+  function odemeIste(
+    path: string,
+    body: object,
+    optimistik: () => void,
+    hepKapanir = false
+  ) {
+    setHata(null);
+    setModal(null);
+    setSecili(new Set());
+    baslat(async () => {
+      optimistik();
+      try {
+        const res = await fetch(path, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setHata(j?.error ?? 'İşlem başarısız');
+          return;
+        }
+        if (hepKapanir || j?.kapandi) router.push('/adisyon');
+        else router.refresh();
+      } catch {
+        setHata('Bağlantı hatası');
+      }
+    });
+  }
+
+  const hesabiKapat = () => {
+    if (!adisyonId || optKalan <= 0.001) return;
+    const kalan = optKalan;
+    odemeIste('/api/odeme/tam', { adisyonId, arac }, () => ekstraOdenenEkle(kalan), true);
   };
 
-  const hesabiKapat = () =>
-    adisyonId &&
-    api('/api/odeme/tam', { adisyonId, arac }, () => router.push('/adisyon'));
-
-  const odeKalem = () =>
-    adisyonId &&
-    api(
-      '/api/odeme/kalem',
-      { adisyonId, kalemIds: [...secili], arac },
-      kapatVeyaTazele
+  const odeKalem = () => {
+    if (!adisyonId || secili.size === 0) return;
+    const ids = [...secili];
+    odemeIste('/api/odeme/kalem', { adisyonId, kalemIds: ids, arac }, () =>
+      ids.forEach((id) =>
+        optimistikUygula({ tip: 'guncelle', id, veri: { durum: 'odendi' } })
+      )
     );
+  };
 
-  const odeEsit = () =>
-    adisyonId &&
-    api(
-      '/api/odeme/esit',
-      { adisyonId, kisiSayisi, odenenPay, arac },
-      kapatVeyaTazele
+  const odeEsit = () => {
+    if (!adisyonId) return;
+    const tutar = (optToplam / Math.max(1, kisiSayisi)) * odenenPay;
+    odemeIste('/api/odeme/esit', { adisyonId, kisiSayisi, odenenPay, arac }, () =>
+      ekstraOdenenEkle(tutar)
     );
+  };
 
   const odeSerbest = () => {
     const tutar = Number(serbestTutar);
@@ -420,7 +500,9 @@ export function AdisyonClient({
       return;
     }
     setSerbestTutar('');
-    api('/api/odeme/serbest', { adisyonId, tutar, arac }, kapatVeyaTazele);
+    odemeIste('/api/odeme/serbest', { adisyonId, tutar, arac }, () =>
+      ekstraOdenenEkle(tutar)
+    );
   };
 
   const masaTasi = (hedefMasaId: number) =>
@@ -533,21 +615,27 @@ export function AdisyonClient({
 
       {/* SAĞ — Hesap */}
       <aside className="flex max-h-[45vh] min-h-0 w-full flex-col bg-slate-900/40 md:max-h-none md:w-96">
-        <div className="flex items-center justify-between gap-2 border-b border-slate-800 px-4 py-3">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-slate-300">Hesap</span>
+        <div className="flex items-center justify-between gap-2 border-b border-slate-800 bg-slate-900/60 px-4 py-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="text-sm font-semibold text-slate-200">Hesap</span>
+            {kalemAdet > 0 && (
+              <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] font-medium tabular-nums text-slate-400">
+                {kalemAdet} ürün
+              </span>
+            )}
             {detay.kismiOdeme && (
-              <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-xs font-semibold text-amber-300">
-                Kısmi ödeme alındı
+              <span className="truncate rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-300 ring-1 ring-amber-500/30">
+                Kısmi ödeme
               </span>
             )}
           </div>
           {optimistikKalemler.length > 0 && (
             <button
               onClick={() => setModal('fis')}
-              className="shrink-0 rounded-lg border border-slate-600 px-2.5 py-1 text-xs font-medium text-slate-200 hover:bg-slate-700"
+              className="flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:border-slate-500 hover:bg-slate-800 hover:text-slate-100"
             >
-              🧾 Fiş
+              <Ikon ad="fis" className="h-4 w-4" />
+              Fiş
             </button>
           )}
         </div>
@@ -565,6 +653,7 @@ export function AdisyonClient({
                 onToggle={toggleSecili}
                 onDuzenle={duzenleAc}
                 onSil={kalemSil}
+                gorsel={(id) => urunMap.get(id)?.image}
               />
               {ekGruplar.map(([kaynak, ks]) => (
                 <div key={kaynak}>
@@ -577,6 +666,7 @@ export function AdisyonClient({
                     onToggle={toggleSecili}
                     onDuzenle={duzenleAc}
                     onSil={kalemSil}
+                    gorsel={(id) => urunMap.get(id)?.image}
                   />
                 </div>
               ))}
@@ -584,13 +674,13 @@ export function AdisyonClient({
           )}
 
           {/* İptaller — silinen kalemlerin izi (denetim) */}
-          {detay.iptaller.length > 0 && (
+          {optIptaller.length > 0 && (
             <div className="mt-3 border-t border-slate-800 pt-2">
               <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-rose-400/70">
-                İptaller ({detay.iptaller.length})
+                İptaller ({optIptaller.length})
               </div>
               <ul className="space-y-0.5">
-                {detay.iptaller.map((i) => (
+                {optIptaller.map((i) => (
                   <li
                     key={i.id}
                     className="flex items-center gap-2 px-2 text-xs text-slate-500"
@@ -609,72 +699,89 @@ export function AdisyonClient({
 
         {/* Seçim bandı */}
         {seciliKalemler.length > 0 && (
-          <div className="flex items-center gap-2 border-t border-slate-800 bg-slate-800/60 px-3 py-2 text-sm">
-            <span className="text-slate-300">
-              {seciliKalemler.length} seçili ·{' '}
-              <b className="tabular-nums">{para(seciliToplam)}</b>
+          <div className="flex items-center gap-2 border-t border-sky-500/20 bg-sky-500/10 px-3 py-2 text-sm">
+            <span className="text-slate-200">
+              <b className="tabular-nums text-sky-300">{seciliKalemler.length}</b>{' '}
+              seçili · <b className="tabular-nums">{para(seciliToplam)}</b>
             </span>
             <button
               onClick={odeKalem}
               disabled={islem}
-              className="ml-auto rounded-lg bg-emerald-600 px-3 py-1.5 font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+              className="ml-auto rounded-lg bg-emerald-500 px-3 py-1.5 font-semibold text-white shadow-sm transition-colors hover:bg-emerald-400 disabled:opacity-50"
             >
               Öde
             </button>
             <button
               onClick={() => setModal('kalemTasi')}
               disabled={islem}
-              className="rounded-lg border border-slate-600 px-3 py-1.5 text-slate-200 hover:bg-slate-700 disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-lg border border-slate-600 px-3 py-1.5 text-slate-200 transition-colors hover:bg-slate-700 disabled:opacity-50"
             >
+              <Ikon ad="tasi" className="h-4 w-4" />
               Taşı
             </button>
           </div>
         )}
 
         {/* Toplam / KALAN + aksiyonlar */}
-        <div className="border-t border-slate-800 px-4 py-3">
-          <div className="flex items-center justify-between text-sm text-slate-400">
-            <span>Toplam</span>
-            <span className="tabular-nums">{para(optToplam)}</span>
-          </div>
-          {adisyonId && (
-            <button
-              onClick={indirimAc}
-              disabled={islem}
-              className="mt-1 flex w-full cursor-pointer items-center justify-between rounded-lg border border-dashed border-slate-700 px-2.5 py-1.5 text-sm text-slate-300 hover:border-rose-400/50 hover:bg-rose-500/5 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <span className="flex items-center gap-1">
-                <span>🏷️ İndirim</span>
-                {detay.indirimTip && (
-                  <span className="text-rose-300">
-                    (
-                    {detay.indirimTip === 'yuzde'
-                      ? `%${detay.indirimDeger}`
-                      : para(detay.indirimDeger)}
-                    )
-                  </span>
-                )}
-              </span>
-              <span className="tabular-nums font-semibold text-rose-300">
-                {optIndirim > 0 ? `-${para(optIndirim)}` : 'Ekle +'}
-              </span>
-            </button>
-          )}
-          {detay.tahsilatToplam > 0 && (
-            <div className="flex items-center justify-between text-sm text-amber-300/80">
-              <span>Ödenen</span>
-              <span className="tabular-nums">-{para(detay.tahsilatToplam)}</span>
+        <div className="space-y-3 border-t border-slate-800 bg-slate-900/60 px-4 py-3.5">
+          {/* Özet satırları */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-sm text-slate-400">
+              <span>Ara toplam</span>
+              <span className="tabular-nums text-slate-300">{para(optToplam)}</span>
             </div>
-          )}
-          <div className="mt-1 flex items-baseline justify-between">
-            <span className="text-sm font-semibold text-slate-300">KALAN</span>
-            <span className="text-2xl font-extrabold tabular-nums text-emerald-300">
-              {para(optKalan)}
+            {adisyonId && (
+              <button
+                onClick={indirimAc}
+                disabled={islem}
+                className="flex w-full cursor-pointer items-center justify-between rounded-lg border border-dashed border-slate-700 px-2.5 py-1.5 text-sm text-slate-300 transition-colors hover:border-rose-400/50 hover:bg-rose-500/5 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <span className="flex items-center gap-1.5">
+                  <Ikon ad="indirim" className="h-4 w-4 text-rose-300/80" />
+                  <span>İndirim</span>
+                  {detay.indirimTip && (
+                    <span className="text-rose-300">
+                      {detay.indirimTip === 'yuzde'
+                        ? `%${detay.indirimDeger}`
+                        : para(detay.indirimDeger)}
+                    </span>
+                  )}
+                </span>
+                <span className="tabular-nums font-semibold text-rose-300">
+                  {optIndirim > 0 ? `−${para(optIndirim)}` : 'Ekle +'}
+                </span>
+              </button>
+            )}
+            {detay.tahsilatToplam > 0 && (
+              <div className="flex items-center justify-between text-sm text-amber-300/90">
+                <span>Ödenen</span>
+                <span className="tabular-nums">−{para(detay.tahsilatToplam)}</span>
+              </div>
+            )}
+          </div>
+
+          {/* KALAN — kahraman tutar */}
+          <div
+            className={`flex items-center justify-between rounded-xl border px-3.5 py-2.5 ${
+              optKalan <= 0.001
+                ? 'border-slate-700/60 bg-slate-800/40'
+                : 'border-emerald-500/25 bg-linear-to-br from-emerald-500/15 to-slate-900/30'
+            }`}
+          >
+            <span className="text-sm font-semibold uppercase tracking-wide text-slate-300">
+              {optKalan <= 0.001 ? 'Ödendi' : 'Kalan'}
+            </span>
+            <span
+              className={`text-[26px] font-extrabold leading-none tabular-nums ${
+                optKalan <= 0.001 ? 'text-slate-400' : 'text-emerald-300'
+              }`}
+            >
+              {para(Math.max(0, optKalan))}
             </span>
           </div>
 
           {hata && (
-            <p className="mt-2 rounded bg-rose-500/15 px-2 py-1 text-center text-xs text-rose-300">
+            <p className="rounded-lg bg-rose-500/15 px-2 py-1.5 text-center text-xs font-medium text-rose-300 ring-1 ring-rose-500/20">
               {hata}
             </p>
           )}
@@ -682,56 +789,68 @@ export function AdisyonClient({
           {adisyonId && (
             <>
               {/* Ödeme aracı — tüm tahsilat aksiyonları bunu kullanır */}
-              <div className="mt-3">
-                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              <div>
+                <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                   Ödeme aracı
                 </div>
-                <div className="grid grid-cols-4 gap-1 rounded-lg bg-slate-800/60 p-1">
-                  {ODEME_ARACLARI.map((a) => (
-                    <button
-                      key={a.key}
-                      onClick={() => setArac(a.key)}
-                      className={`flex flex-col items-center gap-0.5 rounded-md py-1.5 text-[11px] font-medium transition-colors ${
-                        arac === a.key
-                          ? 'bg-sky-400 text-slate-900'
-                          : 'text-slate-300 hover:bg-slate-700'
-                      }`}
-                    >
-                      <span className="text-sm leading-none">{a.ikon}</span>
-                      {a.label}
-                    </button>
-                  ))}
+                <div className="grid grid-cols-4 gap-1.5">
+                  {ODEME_ARACLARI.map((a) => {
+                    const aktif = arac === a.key;
+                    return (
+                      <button
+                        key={a.key}
+                        onClick={() => setArac(a.key)}
+                        aria-pressed={aktif}
+                        className={`flex flex-col items-center gap-1 rounded-xl border py-2 transition-all ${
+                          aktif
+                            ? 'border-sky-400 bg-sky-400/10 text-sky-300 ring-1 ring-sky-400/60'
+                            : 'border-slate-700/70 bg-slate-800/40 text-slate-400 hover:border-slate-600 hover:text-slate-200'
+                        }`}
+                      >
+                        <Ikon ad={a.key as IkonAd} className="h-5 w-5" />
+                        <span className="text-[11px] font-medium leading-none">
+                          {ARAC_KISA[a.key] ?? a.label}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
-              <div className="mt-3 grid grid-cols-3 gap-2">
+              {/* Aksiyonlar — Hesabı Kapat birincil, Böl/Masa ikincil */}
+              <div className="space-y-2">
                 <button
                   onClick={hesabiKapat}
                   disabled={islem || optKalan <= 0.001}
-                  className="rounded-lg bg-emerald-600 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400 disabled:shadow-none"
                 >
+                  <Ikon ad="kapat" className="h-4.5 w-4.5" />
                   Hesabı Kapat
                 </button>
-              <button
-                onClick={() => {
-                  setHata(null);
-                  setModal('bol');
-                }}
-                disabled={islem}
-                className="rounded-lg border border-slate-600 py-2 text-sm font-medium text-slate-200 hover:bg-slate-700 disabled:opacity-50"
-              >
-                Böl
-              </button>
-              <button
-                onClick={() => {
-                  setHata(null);
-                  setModal('masa');
-                }}
-                disabled={islem}
-                className="rounded-lg border border-slate-600 py-2 text-sm font-medium text-slate-200 hover:bg-slate-700 disabled:opacity-50"
-              >
-                Masa
-              </button>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => {
+                      setHata(null);
+                      setModal('bol');
+                    }}
+                    disabled={islem}
+                    className="flex items-center justify-center gap-2 rounded-xl border border-slate-700 py-2.5 text-sm font-medium text-slate-200 transition-colors hover:border-slate-500 hover:bg-slate-800 disabled:opacity-50"
+                  >
+                    <Ikon ad="bol" className="h-4.5 w-4.5" />
+                    Böl
+                  </button>
+                  <button
+                    onClick={() => {
+                      setHata(null);
+                      setModal('masa');
+                    }}
+                    disabled={islem}
+                    className="flex items-center justify-center gap-2 rounded-xl border border-slate-700 py-2.5 text-sm font-medium text-slate-200 transition-colors hover:border-slate-500 hover:bg-slate-800 disabled:opacity-50"
+                  >
+                    <Ikon ad="masa" className="h-4.5 w-4.5" />
+                    Masa
+                  </button>
+                </div>
               </div>
             </>
           )}
@@ -742,38 +861,27 @@ export function AdisyonClient({
       {modal === 'bol' && (
         <ModalKabuk baslik="Hesabı Böl" onClose={() => setModal(null)}>
           <div className="mb-3 flex gap-1">
-            {(['kalem', 'esit', 'serbest'] as BolYontem[]).map((y) => (
+            {(['esit', 'serbest'] as BolYontem[]).map((y) => (
               <button
                 key={y}
                 onClick={() => setBolYontem(y)}
-                className={`flex-1 rounded-lg py-2 text-sm font-medium capitalize ${
+                className={`flex-1 rounded-lg py-2 text-sm font-medium ${
                   bolYontem === y
                     ? 'bg-slate-100 text-slate-900'
                     : 'bg-slate-800 text-slate-300'
                 }`}
               >
-                {y === 'kalem' ? 'Kalem' : y === 'esit' ? 'Eşit' : 'Serbest'}
+                {y === 'esit' ? 'Eşit böl' : 'Serbest tutar'}
               </button>
             ))}
           </div>
 
-          {bolYontem === 'kalem' && (
-            <div className="space-y-3 text-sm">
-              <p className="text-slate-400">
-                Soldaki hesaptan kalemleri seç, sonra öde. Seçili:{' '}
-                <b className="tabular-nums text-slate-200">
-                  {seciliKalemler.length} kalem · {para(seciliToplam)}
-                </b>
-              </p>
-              <button
-                onClick={odeKalem}
-                disabled={islem || seciliKalemler.length === 0}
-                className="w-full rounded-lg bg-emerald-600 py-2.5 font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
-              >
-                Seçili Kalemleri Tahsil Et
-              </button>
-            </div>
-          )}
+          {/* Ürün bazlı bölme: ayrı bir mod değil — hesaptan ürünleri seçince
+              çıkan "Öde" bandı zaten bunu yapar. Buradan hatırlatıyoruz. */}
+          <p className="mb-3 rounded-lg bg-slate-800/60 px-3 py-2 text-xs text-slate-400">
+            Belirli ürünleri ayrı tahsil etmek için bu pencereyi kapat, hesaptan
+            ürünleri seçip <b className="text-slate-200">Öde</b>’ye bas.
+          </p>
 
           {bolYontem === 'esit' && (
             <div className="space-y-4 text-sm">
@@ -884,16 +992,26 @@ export function AdisyonClient({
       {/* POPOVER: Sepet kalemini düzenle — adet + porsiyon + not + sil */}
       {duzenle && (() => {
         const baz = duzenle.yarim ? duzenle.birimFiyat * 2 : duzenle.birimFiyat;
-        const portionable =
-          urunMap.get(duzenle.urunId)?.portionable ?? duzenle.yarim;
+        const urun = urunMap.get(duzenle.urunId);
+        const portionable = urun?.portionable ?? duzenle.yarim;
         return (
         <ModalKabuk
           baslik={duzenle.urunAd}
           onClose={() => setDuzenle(null)}
         >
           <div className="flex items-center gap-3">
-            <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-slate-800 text-2xl opacity-40">
-              🍽️
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-800 ring-1 ring-slate-700/60">
+              {urun?.image ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={urun.image}
+                  alt=""
+                  loading="lazy"
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <Ikon ad="yemek" className="h-6 w-6 text-slate-600" />
+              )}
             </div>
             <div className="text-sm text-amber-300">
               {pIkram ? (
@@ -1110,17 +1228,20 @@ function KalemGrubu({
   onToggle,
   onDuzenle,
   onSil,
+  gorsel,
 }: {
   kalemler: KalemDetay[];
   secili: Set<number>;
   onToggle: (id: number) => void;
   onDuzenle: (k: KalemDetay) => void;
   onSil: (k: KalemDetay) => void;
+  gorsel: (urunId: string) => string | undefined;
 }) {
   return (
     <ul className="space-y-1">
       {kalemler.map((k) => {
         const odendi = k.durum === 'odendi';
+        const resim = gorsel(k.urunId);
         return (
           <li
             key={k.id}
@@ -1143,6 +1264,22 @@ function KalemGrubu({
                 className="h-4 w-4 shrink-0 accent-emerald-500"
               />
             )}
+            {/* Küçük ürün görseli */}
+            <div className="h-9 w-9 shrink-0 overflow-hidden rounded-md bg-slate-800 ring-1 ring-slate-700/60">
+              {resim ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={resim}
+                  alt=""
+                  loading="lazy"
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center text-slate-600">
+                  <Ikon ad="yemek" className="h-4 w-4" />
+                </div>
+              )}
+            </div>
             <button
               type="button"
               onClick={() => onDuzenle(k)}

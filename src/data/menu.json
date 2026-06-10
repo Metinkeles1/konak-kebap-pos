@@ -97,6 +97,14 @@
     "portionable": true
   },
   {
+    "id": "af2bf87f-e485-435f-abb7-cee182b27698",
+    "name": "Acı & Ekşi Ayran",
+    "price": 50,
+    "category": "icecek",
+    "available": true,
+    "portionable": false
+  },
+  {
     "id": "e66c2e3d-acd7-4964-b051-efd65c1f95b5",
     "name": "Kola 2.5 lt.",
     "price": 120,

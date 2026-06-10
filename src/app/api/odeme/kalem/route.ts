@@ -28,11 +28,9 @@ export async function POST(req: Request) {
       (s, k) => s + Number(k.birimFiyat) * k.adet,
       0
     );
-    await tx.adisyonKalem.updateMany({
-      where: { id: { in: kalemler.map((k) => k.id) } },
-      data: { durum: 'odendi' },
-    });
-    await tx.tahsilat.create({
+    // Önce tahsilatı oluştur, sonra ödenen kalemleri ona BAĞLA (tahsilatId).
+    // Böylece bu tahsilat geri alınınca tam olarak bu kalemler "acik"a döner.
+    const tahsilat = await tx.tahsilat.create({
       data: {
         adisyonId,
         tutar,
@@ -40,6 +38,11 @@ export async function POST(req: Request) {
         arac: gecerliArac(arac),
         detay: `${kalemler.length} kalem`,
       },
+      select: { id: true },
+    });
+    await tx.adisyonKalem.updateMany({
+      where: { id: { in: kalemler.map((k) => k.id) } },
+      data: { durum: 'odendi', tahsilatId: tahsilat.id },
     });
     return kapatKontrol(tx, adisyonId);
   });
