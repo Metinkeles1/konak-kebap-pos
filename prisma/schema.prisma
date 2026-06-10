@@ -28,9 +28,10 @@ model Masa {
   // --- Kroki konumu: salon ekranda veriden çizilir, koda gömülmez (SETUP §3) ---
   x     Int    @default(0) // floor-plan x (px)
   y     Int    @default(0) // floor-plan y (px)
-  en    Int    @default(1) // 1 = tekli, 2 = geniş/birleşik masa
-  sekil String @default("kare") // "kare" | "yuvarlak" | "dikdortgen"
-  tip   String @default("masa") // "masa" | "kasa" (kasa = tıklanamaz mobilya, sayıma girmez)
+  en      Int    @default(1) // 1 = tekli, 2 = geniş/birleşik masa
+  sekil   String @default("kare") // "kare" | "yuvarlak" | "dikdortgen"
+  tip     String @default("masa") // "masa" | "kasa" (kasa = tıklanamaz mobilya, sayıma girmez)
+  kapasite Int   @default(4) // oturma kapasitesi (kişi); sadece tip="masa" için anlamlı
 
   adisyonlar Adisyon[]
 
@@ -44,10 +45,17 @@ model Adisyon {
   acilis      DateTime       @default(now())
   kapanis     DateTime?
   durum       String         @default("acik") // "acik" | "kapali"
-  toplam      Decimal        @default(0) // tüm kalemlerin toplamı
+  toplam      Decimal        @default(0) // ikram HARİÇ kalemlerin toplamı
   odenenTutar Decimal        @default(0) // tutar bazlı tahsilatlar (eşit/serbest bölme)
+
+  // --- İndirim (hesap geneli): tip+değer girilir, etkin ₺ türetilip indirim'de tutulur ---
+  indirimTip   String? //  "yuzde" | "tutar" | null (indirim yok)
+  indirimDeger Decimal @default(0) // girilen değer: %10 → 10, 50₺ → 50
+  indirim      Decimal @default(0) // ETKİN indirim ₺ (toplam değişince yeniden hesaplanır) — KALAN bundan düşer
+
   kalemler    AdisyonKalem[]
   tahsilatlar Tahsilat[]
+  iptaller    Iptal[]
 
   @@index([masaId])
   @@index([durum])
@@ -62,6 +70,7 @@ model AdisyonKalem {
   birimFiyat Decimal
   adet       Int      @default(1)
   yarim      Boolean  @default(false) // yarım porsiyon mu
+  ikram      Boolean  @default(false) // ikram (ücretsiz) — toplama 0 sayılır, fişte/ekranda görünür
   durum      String   @default("acik") // "acik" | "odendi" (kalem bazlı bölme için)
   kaynakMasa String? // birleştirmede geldiği masa adı (örn. "İÇ4")
   not        String?
@@ -82,4 +91,20 @@ model Tahsilat {
 
   @@index([adisyonId])
   @@index([zaman]) // gün sonu ciro sorgusu için
+}
+
+// İptal edilen (silinen) kalemlerin izi — personel denetimi + gün sonu raporu.
+// Ana toplam/KALAN hesabına girmez; sadece kayıt amaçlı.
+model Iptal {
+  id        Int      @id @default(autoincrement())
+  adisyon   Adisyon  @relation(fields: [adisyonId], references: [id])
+  adisyonId Int
+  urunAd    String // iptal anındaki ürün adı (kopya)
+  adet      Int
+  tutar     Decimal // iptal edilen kalem tutarı (birimFiyat * adet); ikramsa 0
+  sebep     String?
+  zaman     DateTime @default(now())
+
+  @@index([adisyonId])
+  @@index([zaman]) // gün sonu iptal raporu için
 }

@@ -85,10 +85,11 @@ function KalemSatiri({ k }: { k: KalemDetay }) {
       <span style={{ minWidth: 0, whiteSpace: 'normal', overflowWrap: 'break-word', lineHeight: 1.25, fontWeight: 700 }}>
         {k.urunAd}
         {k.yarim && <span style={{ fontWeight: 400, fontSize: '0.85em' }}> (Yarım)</span>}
+        {k.ikram && <span style={{ fontWeight: 400, fontSize: '0.85em' }}> (İkram)</span>}
       </span>
       <span style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>x{k.adet}</span>
       <span style={{ textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>
-        {para(k.birimFiyat * k.adet)}
+        {k.ikram ? 'İkram' : para(k.birimFiyat * k.adet)}
       </span>
     </div>
   );
@@ -234,8 +235,16 @@ export function AdisyonFis({ detay }: { detay: AdisyonDetay }) {
 
           <Divider />
 
-          {/* Toplam / Ödenen / KALAN */}
+          {/* Toplam / İndirim / Ödenen / KALAN */}
           <Row left="Ara Toplam" right={para(detay.toplam)} />
+          {detay.indirim > 0 && (
+            <Row
+              left={`İndirim${
+                detay.indirimTip === 'yuzde' ? ` (%${detay.indirimDeger})` : ''
+              }`}
+              right={`-${para(detay.indirim)}`}
+            />
+          )}
           {detay.tahsilatToplam > 0 && (
             <Row left="Ödenen" right={`-${para(detay.tahsilatToplam)}`} />
           )}
@@ -244,7 +253,7 @@ export function AdisyonFis({ detay }: { detay: AdisyonDetay }) {
             {detay.tahsilatToplam > 0 ? (
               <Row left="KALAN" right={para(detay.kalan)} bold large />
             ) : (
-              <Row left="TOPLAM" right={para(detay.toplam)} bold large />
+              <Row left="TOPLAM" right={para(detay.kalan)} bold large />
             )}
           </div>
 

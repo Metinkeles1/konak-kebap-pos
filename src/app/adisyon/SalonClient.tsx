@@ -6,9 +6,10 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
 } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import {
   DndContext,
   PointerSensor,
@@ -20,7 +21,7 @@ import {
   type DragEndEvent,
   type DragMoveEvent,
 } from '@dnd-kit/core';
-import type { MasaOzet, SalonOzet } from '@/lib/types';
+import type { MasaOzet, MasaTip, SalonOzet } from '@/lib/types';
 import { MasaKart } from '@/components/MasaKart';
 import { SabitEleman } from '@/components/SabitEleman';
 import { HIZA_ESIK, hizalaMerkez, masaBoyut, sekilBilgi } from '@/lib/kroki';
@@ -33,13 +34,30 @@ import {
   SALON_KANAL,
 } from '@/lib/pusher-client';
 
-type MasaPatch = Partial<Pick<MasaOzet, 'x' | 'y' | 'sekil' | 'en'>>;
-type Onay = { tip: 'tasi' | 'birlestir'; src: MasaOzet; tgt: MasaOzet };
+type MasaPatch = Partial<Pick<MasaOzet, 'x' | 'y' | 'sekil' | 'en' | 'ad' | 'kapasite'>>;
+type Onay =
+  | { tip: 'tasi'; src: MasaOzet; tgt: MasaOzet }
+  | { tip: 'birlestir'; src: MasaOzet; tgt: MasaOzet }
+  | { tip: 'ode'; masa: MasaOzet }
+  | { tip: 'sil'; masa: MasaOzet };
+type HedefMod = { tip: 'tasi' | 'birlestir'; src: MasaOzet };
+type Menu = { masa: MasaOzet; x: number; y: number };
 
 const SEKILLER: { key: MasaOzet['sekil']; label: string }[] = [
   { key: 'kare', label: '◻ Kare' },
   { key: 'yuvarlak', label: '◯ Yuvarlak' },
   { key: 'dikdortgen', label: '▭ Dikdörtgen' },
+];
+
+// Düzenle modunda eklenebilen masa + sabit elemanlar.
+const EKLENEBILIR: { tip: MasaTip; label: string }[] = [
+  { tip: 'masa', label: '🍽 Masa' },
+  { tip: 'kasa', label: '💳 Kasa' },
+  { tip: 'tezgah', label: '▭ Tezgah' },
+  { tip: 'ocak', label: '🔥 Ocak' },
+  { tip: 'merdiven', label: '🪜 Merdiven' },
+  { tip: 'kapi', label: '🚪 Kapı' },
+  { tip: 'gecit', label: '↔ Geçit' },
 ];
 
 export function SalonClient({ initial }: { initial: SalonOzet }) {
@@ -54,6 +72,9 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
     y: null,
   });
   const [onay, setOnay] = useState<Onay | null>(null);
+  const [menu, setMenu] = useState<Menu | null>(null);
+  const [hedefMod, setHedefMod] = useState<HedefMod | null>(null);
+  const [ekleAcik, setEkleAcik] = useState(false);
   const [olcek, setOlcek] = useState(1);
   const surukleRef = useRef(false);
   const kapsayiciRef = useRef<HTMLDivElement | null>(null);
@@ -106,38 +127,49 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
 
   const aktif = data.bolgeler.find((b) => b.id === aktifId) ?? data.bolgeler[0];
   const masalar = useMemo(() => aktif?.masalar ?? [], [aktif]);
-  const seciliMasa =
-    masalar.find((m) => m.id === seciliMasaId && m.tip === 'masa') ?? null;
+  const seciliEleman = masalar.find((m) => m.id === seciliMasaId) ?? null;
+  const seciliMasa = seciliEleman?.tip === 'masa' ? seciliEleman : null;
   const seciliBilgi = sekilBilgi(seciliMasa?.sekil ?? 'kare');
 
   const masaTikla = useCallback(
-    async (m: MasaOzet) => {
+    (m: MasaOzet) => {
       if (m.tip !== 'masa') return;
+      // Boş masa burada açılmaz; adisyon ilk ürün eklenince oluşur (detayda
+      // ensureAdisyon). Böylece "ürün eklemeden masa dolu görünmesi" engellenir.
       setBekleyenId(m.id);
-      if (m.durum === 'bos') {
-        try {
-          await fetch('/api/adisyon/ac', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ masaId: m.id }),
-          });
-        } catch {
-          /* yine de detaya geç */
-        }
-      }
       router.push(`/adisyon/masa/${m.id}`);
     },
     [router]
   );
 
-  // Tıkla-aç ama sürükleme bittiyse açma (drag-merge ile çakışmasın)
+  // Tıkla-aç ama sürükleme bittiyse açma (drag-merge ile çakışmasın).
+  // Hedef seçme modunda (menüden "Taşı/Birleştir") tıklanan masa hedef olur.
   const acMasa = useCallback(
     (m: MasaOzet) => {
       if (surukleRef.current) return;
+      if (hedefMod) {
+        const src = hedefMod.src;
+        if (m.id !== src.id && m.tip === 'masa') {
+          if (hedefMod.tip === 'tasi' && m.durum === 'bos') {
+            setOnay({ tip: 'tasi', src, tgt: m });
+          } else if (hedefMod.tip === 'birlestir' && m.adisyon) {
+            setOnay({ tip: 'birlestir', src, tgt: m });
+          }
+        }
+        setHedefMod(null);
+        return;
+      }
       masaTikla(m);
     },
-    [masaTikla]
+    [masaTikla, hedefMod]
   );
+
+  // Sağ-tık / uzun-bas → masa için hızlı aksiyon menüsü (sayfa değiştirmeden).
+  const masaMenu = useCallback((m: MasaOzet, e: ReactMouseEvent) => {
+    if (m.tip !== 'masa') return;
+    e.preventDefault();
+    setMenu({ masa: m, x: e.clientX, y: e.clientY });
+  }, []);
 
   const guncelleMasa = useCallback((id: number, patch: MasaPatch) => {
     setData((d) => ({
@@ -153,6 +185,29 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
       body: JSON.stringify({ id, ...patch }),
     }).catch(() => {});
   }, []);
+
+  // Düzenle modu: bölgeye yeni masa/eleman ekle (eklenince seç → konumlandır).
+  const ekle = useCallback(
+    async (tip: MasaTip) => {
+      if (!aktif) return;
+      setEkleAcik(false);
+      const offset = (masalar.length % 6) * 28;
+      try {
+        const res = await fetch('/api/masa/ekle', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ bolgeId: aktif.id, tip, x: 40 + offset, y: 40 + offset }),
+        });
+        if (!res.ok) return;
+        const { id } = await res.json();
+        await refetch();
+        setSeciliMasaId(id);
+      } catch {
+        /* yut */
+      }
+    },
+    [aktif, masalar.length, refetch]
+  );
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
@@ -224,30 +279,48 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
 
   const onayUygula = useCallback(async () => {
     if (!onay) return;
-    const { tip, src, tgt } = onay;
+    const o = onay;
     setOnay(null);
     try {
-      if (tip === 'tasi' && src.adisyon) {
+      if (o.tip === 'tasi' && o.src.adisyon) {
         await fetch('/api/masa/tasi', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ adisyonId: src.adisyon.id, hedefMasaId: tgt.id }),
+          body: JSON.stringify({ adisyonId: o.src.adisyon.id, hedefMasaId: o.tgt.id }),
         });
-      } else if (tip === 'birlestir' && src.adisyon && tgt.adisyon) {
+      } else if (o.tip === 'birlestir' && o.src.adisyon && o.tgt.adisyon) {
         await fetch('/api/masa/birlestir', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
-            kaynakAdisyonId: src.adisyon.id,
-            hedefAdisyonId: tgt.adisyon.id,
+            kaynakAdisyonId: o.src.adisyon.id,
+            hedefAdisyonId: o.tgt.adisyon.id,
           }),
         });
+      } else if (o.tip === 'ode' && o.masa.adisyon) {
+        await fetch('/api/odeme/tam', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ adisyonId: o.masa.adisyon.id, arac: 'nakit' }),
+        });
+      } else if (o.tip === 'sil') {
+        const res = await fetch('/api/masa/sil', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: o.masa.id }),
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(() => null);
+          alert(j?.error ?? 'Silinemedi.');
+        } else if (seciliMasaId === o.masa.id) {
+          setSeciliMasaId(null);
+        }
       }
     } catch {
       /* yut */
     }
     refetch();
-  }, [onay, refetch]);
+  }, [onay, refetch, seciliMasaId]);
 
   const { w, h } = useMemo(() => {
     let mw = 0;
@@ -296,6 +369,12 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
           <span className="text-sm font-medium text-slate-400">· Salon</span>
         </div>
         <div className="flex items-center gap-2">
+          <Link
+            href="/adisyon/rapor"
+            className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
+          >
+            📊 Gün Sonu
+          </Link>
           <button
             onClick={refetch}
             className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
@@ -320,6 +399,15 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
         <span className="text-emerald-400">🟢 Boş {o.bos}</span>
         <span className="text-rose-300">🔴 Dolu {o.dolu}</span>
         <span className="text-amber-300">⏳ Ödeme bekleyen {o.odemeBekleyen}</span>
+        {(o.gunIptal > 0 || o.gunIkram > 0 || o.gunIndirim > 0) && (
+          <span className="text-slate-500" title="Bugün: iptal · ikram · indirim">
+            İptal <b className="tabular-nums text-rose-300/90">{para(o.gunIptal)}</b>
+            {' · '}İkram{' '}
+            <b className="tabular-nums text-emerald-300/80">{para(o.gunIkram)}</b>
+            {' · '}İndirim{' '}
+            <b className="tabular-nums text-rose-300/90">{para(o.gunIndirim)}</b>
+          </span>
+        )}
         <span className="ml-auto text-slate-400">
           Açık hesap:{' '}
           <b className="tabular-nums text-slate-100">{para(o.acikHesapToplam)}</b>
@@ -349,6 +437,24 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
           </button>
         ))}
       </div>
+
+      {/* Hedef seçme bandı (menüden Taşı/Birleştir) */}
+      {hedefMod && (
+        <div className="flex items-center justify-between gap-3 border-b border-emerald-400/30 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-100">
+          <span>
+            <b>{hedefMod.src.ad}</b> →{' '}
+            {hedefMod.tip === 'tasi'
+              ? 'taşınacak BOŞ masayı seç'
+              : 'birleştirilecek DOLU masayı seç'}
+          </span>
+          <button
+            onClick={() => setHedefMod(null)}
+            className="rounded-lg border border-emerald-300/40 px-3 py-1 text-xs font-medium hover:bg-emerald-500/20"
+          >
+            Vazgeç
+          </button>
+        </div>
+      )}
 
       {data.bolgeler.length === 0 ? (
         <div className="flex flex-1 items-center justify-center p-8 text-center text-slate-400">
@@ -424,6 +530,7 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
 
               {duzenle ? (
                 <DndContext
+                  id="salon-duzenle"
                   sensors={sensors}
                   onDragMove={onDuzenleMove}
                   onDragEnd={onDuzenleEnd}
@@ -442,6 +549,7 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
                 </DndContext>
               ) : (
                 <DndContext
+                  id="salon"
                   sensors={sensors}
                   collisionDetection={pointerWithin}
                   onDragStart={onSalonStart}
@@ -467,8 +575,14 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
                         now={now}
                         vurgulu={vurgu.has(m.id)}
                         bekleyen={bekleyenId === m.id}
+                        hedef={hedefMod?.tip === 'tasi'
+                          ? m.durum === 'bos' && m.id !== hedefMod.src.id
+                          : hedefMod?.tip === 'birlestir'
+                            ? !!m.adisyon && m.id !== hedefMod.src.id
+                            : false}
                         olcek={olcek}
                         onAc={acMasa}
+                        onMenu={masaMenu}
                       />
                     );
                   })}
@@ -483,40 +597,88 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
       {/* Düzenle modu — kayan araç çubuğu */}
       {duzenle && (
         <div className="fixed bottom-4 left-1/2 z-40 flex max-w-[94vw] -translate-x-1/2 flex-wrap items-center gap-2 rounded-2xl border border-sky-400/25 bg-slate-900/90 px-3 py-2 shadow-2xl backdrop-blur">
-          {seciliMasa ? (
-            <>
-              <span className="text-sm font-bold text-sky-200">{seciliMasa.ad}</span>
-              <div className="flex gap-1">
-                {SEKILLER.map((s) => {
-                  const aktif =
-                    s.key === 'dikdortgen'
-                      ? seciliBilgi.dikdortgen
-                      : seciliMasa.sekil === s.key;
-                  return (
-                    <button
-                      key={s.key}
-                      onClick={() => guncelleMasa(seciliMasa.id, { sekil: s.key })}
-                      className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                        aktif
-                          ? 'bg-sky-400 text-slate-900'
-                          : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                      }`}
-                    >
-                      {s.label}
-                    </button>
-                  );
-                })}
+          {/* Ekle paleti */}
+          <div className="relative">
+            <button
+              onClick={() => setEkleAcik((v) => !v)}
+              className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition-colors ${
+                ekleAcik
+                  ? 'bg-sky-400 text-slate-900'
+                  : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+              }`}
+            >
+              ＋ Ekle
+            </button>
+            {ekleAcik && (
+              <div className="absolute bottom-full left-0 mb-2 grid w-44 grid-cols-1 gap-1 rounded-xl border border-slate-700 bg-slate-900 p-1.5 shadow-2xl">
+                {EKLENEBILIR.map((e) => (
+                  <button
+                    key={e.tip}
+                    onClick={() => ekle(e.tip)}
+                    className="rounded-lg px-3 py-1.5 text-left text-sm text-slate-200 hover:bg-slate-800"
+                  >
+                    {e.label}
+                  </button>
+                ))}
               </div>
-              {seciliBilgi.dikdortgen && (
+            )}
+          </div>
+
+          <span className="h-6 w-px bg-slate-700" />
+
+          {seciliEleman ? (
+            <>
+              <input
+                key={seciliEleman.id}
+                defaultValue={seciliEleman.ad}
+                onBlur={(e) => {
+                  const v = e.target.value.trim();
+                  if (v && v !== seciliEleman.ad) guncelleMasa(seciliEleman.id, { ad: v });
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') e.currentTarget.blur();
+                }}
+                className="w-24 rounded-lg bg-slate-800 px-2 py-1.5 text-xs font-bold text-sky-100 outline-none focus:ring-1 focus:ring-sky-400"
+              />
+
+              {seciliMasa && (
+                <div className="flex gap-1">
+                  {SEKILLER.map((s) => {
+                    const aktif =
+                      s.key === 'dikdortgen'
+                        ? seciliBilgi.dikdortgen
+                        : seciliMasa.sekil === s.key;
+                    return (
+                      <button
+                        key={s.key}
+                        onClick={() => guncelleMasa(seciliMasa.id, { sekil: s.key })}
+                        className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                          aktif
+                            ? 'bg-sky-400 text-slate-900'
+                            : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                        }`}
+                      >
+                        {s.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Döndür + Genişlet: masa için sadece dikdörtgende, eleman için her zaman */}
+              {(seciliEleman.tip !== 'masa' || seciliBilgi.dikdortgen) && (
                 <>
                   <button
                     onClick={() =>
-                      guncelleMasa(seciliMasa.id, {
-                        sekil: seciliBilgi.dikey ? 'dikdortgen' : 'dikdortgen-d',
+                      guncelleMasa(seciliEleman.id, {
+                        sekil:
+                          seciliEleman.sekil === 'dikdortgen-d'
+                            ? 'dikdortgen'
+                            : 'dikdortgen-d',
                       })
                     }
                     className={`rounded-lg px-2.5 py-1.5 text-xs font-medium ${
-                      seciliBilgi.dikey
+                      seciliEleman.sekil === 'dikdortgen-d'
                         ? 'bg-sky-400 text-slate-900'
                         : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
                     }`}
@@ -525,10 +687,10 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
                   </button>
                   <button
                     onClick={() =>
-                      guncelleMasa(seciliMasa.id, { en: seciliMasa.en >= 2 ? 1 : 2 })
+                      guncelleMasa(seciliEleman.id, { en: seciliEleman.en >= 2 ? 1 : 2 })
                     }
                     className={`rounded-lg px-2.5 py-1.5 text-xs font-medium ${
-                      seciliMasa.en >= 2
+                      seciliEleman.en >= 2
                         ? 'bg-amber-400 text-slate-900'
                         : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
                     }`}
@@ -537,10 +699,44 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
                   </button>
                 </>
               )}
+
+              {/* Kapasite — yalnız masa */}
+              {seciliMasa && (
+                <div className="flex items-center gap-1 rounded-lg bg-slate-800 px-1.5 py-1 text-xs text-slate-200">
+                  <button
+                    onClick={() =>
+                      guncelleMasa(seciliMasa.id, {
+                        kapasite: Math.max(1, seciliMasa.kapasite - 1),
+                      })
+                    }
+                    className="px-1.5 font-bold text-slate-300 hover:text-white"
+                  >
+                    −
+                  </button>
+                  <span className="tabular-nums">{seciliMasa.kapasite}👤</span>
+                  <button
+                    onClick={() =>
+                      guncelleMasa(seciliMasa.id, {
+                        kapasite: Math.min(20, seciliMasa.kapasite + 1),
+                      })
+                    }
+                    className="px-1.5 font-bold text-slate-300 hover:text-white"
+                  >
+                    +
+                  </button>
+                </div>
+              )}
+
+              <button
+                onClick={() => setOnay({ tip: 'sil', masa: seciliEleman })}
+                className="rounded-lg bg-rose-500/15 px-2.5 py-1.5 text-xs font-medium text-rose-200 hover:bg-rose-500/25"
+              >
+                🗑 Sil
+              </button>
             </>
           ) : (
             <span className="text-sm text-slate-400">
-              Masa seç → şeklini değiştir · sürükle → taşı (gride/komşuya oturur)
+              Ekle ile masa/eleman koy · seç → ad·şekil·kapasite · sürükle → taşı
             </span>
           )}
           <button
@@ -552,7 +748,65 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
         </div>
       )}
 
-      {/* Taşı / Birleştir onayı */}
+      {/* Hızlı aksiyon menüsü (sağ-tık / uzun-bas) */}
+      {menu && (
+        <div className="fixed inset-0 z-40" onClick={() => setMenu(null)}>
+          <div
+            className="absolute w-48 overflow-hidden rounded-xl border border-slate-700 bg-slate-900 py-1 shadow-2xl"
+            style={{
+              left: Math.min(menu.x, (typeof window !== 'undefined' ? window.innerWidth : 9999) - 200),
+              top: Math.min(menu.y, (typeof window !== 'undefined' ? window.innerHeight : 9999) - 220),
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="border-b border-slate-800 px-3 py-1.5 text-xs font-bold text-sky-200">
+              {menu.masa.ad}
+              {menu.masa.adisyon && (
+                <span className="ml-1 font-normal text-slate-400">
+                  · {para(menu.masa.adisyon.kalan)}
+                </span>
+              )}
+            </div>
+            {[
+              {
+                label: menu.masa.adisyon ? '📂 Adisyonu Aç' : '➕ Adisyon Aç',
+                run: () => masaTikla(menu.masa),
+                goster: true,
+              },
+              {
+                label: '💵 Tümünü Öde (Nakit)',
+                run: () => setOnay({ tip: 'ode', masa: menu.masa }),
+                goster: !!menu.masa.adisyon,
+              },
+              {
+                label: '➡ Taşı…',
+                run: () => setHedefMod({ tip: 'tasi', src: menu.masa }),
+                goster: !!menu.masa.adisyon,
+              },
+              {
+                label: '🔗 Birleştir…',
+                run: () => setHedefMod({ tip: 'birlestir', src: menu.masa }),
+                goster: !!menu.masa.adisyon,
+              },
+            ]
+              .filter((a) => a.goster)
+              .map((a) => (
+                <button
+                  key={a.label}
+                  onClick={() => {
+                    setMenu(null);
+                    a.run();
+                  }}
+                  className="block w-full px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-800"
+                >
+                  {a.label}
+                </button>
+              ))}
+          </div>
+        </div>
+      )}
+
+      {/* Onay kutusu — taşı / birleştir / öde / sil */}
       {onay && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
@@ -563,7 +817,13 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="text-base font-bold">
-              {onay.tip === 'tasi' ? 'Masayı Taşı' : 'Masaları Birleştir'}
+              {onay.tip === 'tasi'
+                ? 'Masayı Taşı'
+                : onay.tip === 'birlestir'
+                  ? 'Masaları Birleştir'
+                  : onay.tip === 'ode'
+                    ? 'Hesabı Kapat'
+                    : 'Sil'}
             </h3>
             <p className="mt-2 text-sm text-slate-300">
               {onay.tip === 'tasi' ? (
@@ -572,12 +832,23 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
                   <b className="text-slate-100">{onay.tgt.ad}</b> masasına taşınsın
                   mı?
                 </>
-              ) : (
+              ) : onay.tip === 'birlestir' ? (
                 <>
                   <b className="text-slate-100">{onay.src.ad}</b>,{' '}
                   <b className="text-slate-100">{onay.tgt.ad}</b> masasına
                   birleştirilsin mi? ({onay.src.ad} kapanır, kalemleri {onay.tgt.ad}
                   ’e taşınır.)
+                </>
+              ) : onay.tip === 'ode' ? (
+                <>
+                  <b className="text-slate-100">{onay.masa.ad}</b> hesabının kalanı{' '}
+                  <b className="text-emerald-300">{para(onay.masa.adisyon?.kalan ?? 0)}</b>{' '}
+                  nakit olarak tahsil edilip adisyon kapatılsın mı?
+                </>
+              ) : (
+                <>
+                  <b className="text-slate-100">{onay.masa.ad}</b> krokiden silinsin
+                  mi? (Adisyon geçmişi olan masa silinemez.)
                 </>
               )}
             </p>
@@ -590,9 +861,19 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
               </button>
               <button
                 onClick={onayUygula}
-                className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-emerald-400"
+                className={`rounded-lg px-4 py-2 text-sm font-semibold text-slate-900 ${
+                  onay.tip === 'sil'
+                    ? 'bg-rose-400 hover:bg-rose-300'
+                    : 'bg-emerald-500 hover:bg-emerald-400'
+                }`}
               >
-                {onay.tip === 'tasi' ? 'Taşı' : 'Birleştir'}
+                {onay.tip === 'tasi'
+                  ? 'Taşı'
+                  : onay.tip === 'birlestir'
+                    ? 'Birleştir'
+                    : onay.tip === 'ode'
+                      ? 'Öde & Kapat'
+                      : 'Sil'}
               </button>
             </div>
           </div>
@@ -662,15 +943,19 @@ function SalonMasa({
   now,
   vurgulu,
   bekleyen,
+  hedef: hedefAday,
   olcek,
   onAc,
+  onMenu,
 }: {
   masa: MasaOzet;
   now: number;
   vurgulu?: boolean;
   bekleyen?: boolean;
+  hedef?: boolean; // hedef-seçme modunda geçerli aday mı (menüden Taşı/Birleştir)
   olcek: number;
   onAc: (m: MasaOzet) => void;
+  onMenu: (m: MasaOzet, e: ReactMouseEvent) => void;
 }) {
   const drag = useDraggable({ id: `d${masa.id}`, data: { masa } });
   const drop = useDroppable({ id: `o${masa.id}`, data: { masa } });
@@ -679,7 +964,9 @@ function SalonMasa({
     drag.setNodeRef(el);
     drop.setNodeRef(el);
   };
-  const hedef = drop.isOver && !!drop.active && drop.active.id !== `d${masa.id}`;
+  const hedef =
+    (drop.isOver && !!drop.active && drop.active.id !== `d${masa.id}`) ||
+    !!hedefAday;
 
   return (
     <div
@@ -687,6 +974,7 @@ function SalonMasa({
       {...drag.listeners}
       {...drag.attributes}
       onClick={() => onAc(masa)}
+      onContextMenu={(e) => onMenu(masa, e)}
       className="absolute"
       style={{
         left: masa.x,

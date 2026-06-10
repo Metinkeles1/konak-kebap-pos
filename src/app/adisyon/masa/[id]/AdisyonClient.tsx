@@ -16,8 +16,27 @@ import { ODEME_ARACLARI, type OdemeArac } from '@/lib/odeme';
 import { useNow } from '@/lib/useNow';
 import { AdisyonFis } from '@/components/receipt/AdisyonFis';
 
-type Modal = null | 'bol' | 'masa' | 'kalemTasi' | 'fis';
+type Modal = null | 'bol' | 'masa' | 'kalemTasi' | 'fis' | 'indirim';
 type BolYontem = 'kalem' | 'esit' | 'serbest';
+
+// Optimistik kalem güncellemeleri (ekle / düzenle / sil) — hesaba ANINDA yansır.
+type OptAksiyon =
+  | { tip: 'ekle'; kalem: KalemDetay }
+  | { tip: 'guncelle'; id: number; veri: Partial<KalemDetay> }
+  | { tip: 'sil'; id: number };
+
+// Birleşik not metnini (örn. "Acılı, az ekmek") hazır çipler + serbest nota ayırır.
+function notAyikla(not: string | null): { notlar: Set<string>; serbest: string } {
+  if (!not) return { notlar: new Set(), serbest: '' };
+  const parcalar = not.split(',').map((s) => s.trim()).filter(Boolean);
+  const notlar = new Set<string>();
+  const serbest: string[] = [];
+  for (const p of parcalar) {
+    if (NOT_SECENEK.includes(p)) notlar.add(p);
+    else serbest.push(p);
+  }
+  return { notlar, serbest: serbest.join(', ') };
+}
 
 // Kebapçı için hazır not çipleri — serbest not da eklenebilir.
 const NOT_SECENEK = [
@@ -52,32 +71,58 @@ export function AdisyonClient({
   const [islem, setIslem] = useState(false);
   const [hata, setHata] = useState<string | null>(null);
 
-  // Ekle popover'ı: dokunulan ürün + adet/porsiyon/not seçimi
-  const [eklenecek, setEklenecek] = useState<Urun | null>(null);
+  // Düzenle popover'ı: dokunulan SEPET KALEMİ + adet/porsiyon/not seçimi
+  const [duzenle, setDuzenle] = useState<KalemDetay | null>(null);
   const [pAdet, setPAdet] = useState(1);
   const [pYarim, setPYarim] = useState(false);
+  const [pIkram, setPIkram] = useState(false);
   const [pNotlar, setPNotlar] = useState<Set<string>>(new Set());
   const [pSerbest, setPSerbest] = useState('');
 
+  // İndirim modalı: tip + değer girişi
+  const [indTip, setIndTip] = useState<'yuzde' | 'tutar'>('yuzde');
+  const [indDeger, setIndDeger] = useState('');
+
   const aktifGrup = gruplar.find((g) => g.key === aktifKat) ?? gruplar[0];
+
+  // urunId → ürün (düzenlemede portionable / temel fiyat bilgisi için)
+  const urunMap = useMemo(() => {
+    const m = new Map<string, Urun>();
+    for (const g of gruplar) for (const u of g.urunler) m.set(u.id, u);
+    return m;
+  }, [gruplar]);
 
   // Optimistik kalemler: ürün eklenince hesaba ANINDA düşer, kayıt arka planda
   // gider (useOptimistic). router.refresh ile gerçek veri gelince sorunsuz eşleşir.
-  const [optimistikKalemler, ekleOptimistik] = useOptimistic(
+  const [optimistikKalemler, optimistikUygula] = useOptimistic(
     detay.kalemler,
-    (state: KalemDetay[], yeni: KalemDetay) => [...state, yeni]
+    (state: KalemDetay[], a: OptAksiyon) => {
+      switch (a.tip) {
+        case 'ekle':
+          return [...state, a.kalem];
+        case 'guncelle':
+          return state.map((k) => (k.id === a.id ? { ...k, ...a.veri } : k));
+        case 'sil':
+          return state.filter((k) => k.id !== a.id);
+      }
+    }
   );
   const [, baslat] = useTransition();
 
-  // Optimistik toplam / KALAN (anında güncellensin)
-  const optToplam = optimistikKalemler.reduce(
-    (s, k) => s + k.birimFiyat * k.adet,
-    0
-  );
-  const optKalemOdenen = optimistikKalemler
-    .filter((k) => k.durum === 'odendi')
+  // Optimistik toplam / KALAN (anında güncellensin). İkram toplama girmez;
+  // indirim toplamdan düşer (yüzdeyse optimistik toplam üstünden anlık kayar).
+  const optToplam = optimistikKalemler
+    .filter((k) => !k.ikram)
     .reduce((s, k) => s + k.birimFiyat * k.adet, 0);
-  const optKalan = optToplam - optKalemOdenen - detay.odenenTutar;
+  const optIndirim = detay.indirimTip
+    ? detay.indirimTip === 'yuzde'
+      ? Math.min((optToplam * detay.indirimDeger) / 100, optToplam)
+      : Math.min(detay.indirimDeger, optToplam)
+    : 0;
+  const optKalemOdenen = optimistikKalemler
+    .filter((k) => k.durum === 'odendi' && !k.ikram)
+    .reduce((s, k) => s + k.birimFiyat * k.adet, 0);
+  const optKalan = optToplam - optIndirim - optKalemOdenen - detay.odenenTutar;
 
   // Kalemleri kaynakMasa'ya göre grupla (kendi + birleştirmeden gelenler)
   const { kendi, ekGruplar } = useMemo(() => {
@@ -123,14 +168,188 @@ export function AdisyonClient({
     return j.adisyonId as number;
   }
 
-  // Ürüne dokununca ekle popover'ını sıfırdan aç
-  function acEkle(urun: Urun) {
+  // Ürüne dokun → varsayılan ayarla ANINDA sepete. Aynı sade ürüne tekrar
+  // dokunulursa yeni satır açmak yerine mevcut satırın adedini artırır.
+  function hizliEkle(urun: Urun) {
     if (!urun.available) return;
-    setEklenecek(urun);
-    setPAdet(1);
-    setPYarim(false);
-    setPNotlar(new Set());
-    setPSerbest('');
+    setHata(null);
+    // mevcut: kalıcı (kaydedilmiş) + sade (yarımsız/notsuz/ikramsız/açık/kendi) satır
+    const mevcut = optimistikKalemler.find(
+      (k) =>
+        k.id > 0 &&
+        k.urunId === urun.id &&
+        !k.yarim &&
+        !k.ikram &&
+        !k.not &&
+        k.durum === 'acik' &&
+        !k.kaynakMasa
+    );
+
+    baslat(async () => {
+      if (mevcut) {
+        const yeniAdet = mevcut.adet + 1;
+        optimistikUygula({ tip: 'guncelle', id: mevcut.id, veri: { adet: yeniAdet } });
+        try {
+          await fetch('/api/kalem/guncelle', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              kalemId: mevcut.id,
+              birimFiyat: mevcut.birimFiyat, // satırın kilitli fiyatı korunur
+              adet: yeniAdet,
+              yarim: false,
+              not: null,
+            }),
+          });
+        } catch {
+          /* sessiz geç — refresh gerçeği geri getirir */
+        }
+      } else {
+        const optimistik: KalemDetay = {
+          id: -Date.now(),
+          urunId: urun.id,
+          urunAd: urun.name,
+          birimFiyat: urun.price,
+          adet: 1,
+          yarim: false,
+          ikram: false,
+          durum: 'acik',
+          kaynakMasa: null,
+          not: null,
+        };
+        optimistikUygula({ tip: 'ekle', kalem: optimistik });
+        try {
+          const aid = await ensureAdisyon();
+          await fetch('/api/kalem', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              adisyonId: aid,
+              urunId: urun.id,
+              urunAd: urun.name,
+              birimFiyat: urun.price,
+              adet: 1,
+              yarim: false,
+            }),
+          });
+        } catch {
+          /* sessiz geç */
+        }
+      }
+      router.refresh();
+    });
+  }
+
+  // Sepet kalemine dokun → o kalemi düzenle (adet / yarım / not). Optimistik
+  // satır (id<0, henüz kaydedilmemiş) ve ödenmiş kalem düzenlenemez.
+  function duzenleAc(k: KalemDetay) {
+    if (k.durum !== 'acik' || k.id < 0) return;
+    setDuzenle(k);
+    setPAdet(k.adet);
+    setPYarim(k.yarim);
+    setPIkram(k.ikram);
+    const { notlar, serbest } = notAyikla(k.not);
+    setPNotlar(notlar);
+    setPSerbest(serbest);
+  }
+
+  function duzenleOnayla() {
+    const k = duzenle;
+    if (!k) return;
+    const baz = k.yarim ? k.birimFiyat * 2 : k.birimFiyat; // satırın tam (kilitli) fiyatı
+    const notlar = [...pNotlar];
+    if (pSerbest.trim()) notlar.push(pSerbest.trim());
+    const not = notlar.join(', ') || null;
+
+    setDuzenle(null);
+    setHata(null);
+    baslat(async () => {
+      optimistikUygula({
+        tip: 'guncelle',
+        id: k.id,
+        veri: { adet: pAdet, yarim: pYarim, ikram: pIkram, birimFiyat: pYarim ? baz / 2 : baz, not },
+      });
+      let kapandi = false;
+      try {
+        const r = await fetch('/api/kalem/guncelle', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            kalemId: k.id,
+            birimFiyat: baz,
+            adet: pAdet,
+            yarim: pYarim,
+            ikram: pIkram,
+            not,
+          }),
+        });
+        kapandi = !!(await r.json().catch(() => ({})))?.kapandi;
+      } catch {
+        /* sessiz geç */
+      }
+      if (kapandi) router.push('/adisyon');
+      else router.refresh();
+    });
+  }
+
+  // İndirim modalını mevcut değerle aç
+  function indirimAc() {
+    setIndTip(detay.indirimTip === 'tutar' ? 'tutar' : 'yuzde');
+    setIndDeger(detay.indirimTip ? String(detay.indirimDeger) : '');
+    setHata(null);
+    setModal('indirim');
+  }
+
+  // Hesap geneli indirim uygula / kaldır
+  function indirimUygula(tip: 'yuzde' | 'tutar' | null, deger: number) {
+    if (!adisyonId) return;
+    setModal(null);
+    setHata(null);
+    baslat(async () => {
+      let kapandi = false;
+      try {
+        const r = await fetch('/api/adisyon/indirim', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ adisyonId, tip, deger }),
+        });
+        kapandi = !!(await r.json().catch(() => ({})))?.kapandi;
+      } catch {
+        /* sessiz geç */
+      }
+      if (kapandi) router.push('/adisyon');
+      else router.refresh();
+    });
+  }
+
+  // Kalemi sil (sepet satırındaki × ve düzenleme popover'ı bunu kullanır).
+  // Optimistik (id<0, henüz kaydedilmemiş) ve ödenmiş kalem silinemez.
+  function kalemSil(k: KalemDetay) {
+    if (k.durum !== 'acik' || k.id < 0) return;
+    setHata(null);
+    baslat(async () => {
+      optimistikUygula({ tip: 'sil', id: k.id });
+      let kapandi = false;
+      try {
+        const r = await fetch('/api/kalem/guncelle', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ kalemId: k.id, sil: true }),
+        });
+        kapandi = !!(await r.json().catch(() => ({})))?.kapandi;
+      } catch {
+        /* sessiz geç */
+      }
+      if (kapandi) router.push('/adisyon');
+      else router.refresh();
+    });
+  }
+
+  function duzenleSil() {
+    if (!duzenle) return;
+    const k = duzenle;
+    setDuzenle(null);
+    kalemSil(k);
   }
 
   function notCevir(n: string) {
@@ -139,54 +358,6 @@ export function AdisyonClient({
       if (yeni.has(n)) yeni.delete(n);
       else yeni.add(n);
       return yeni;
-    });
-  }
-
-  function eklePopoveriOnayla() {
-    const urun = eklenecek;
-    if (!urun) return;
-    const notlar = [...pNotlar];
-    if (pSerbest.trim()) notlar.push(pSerbest.trim());
-    const not = notlar.join(', ') || undefined;
-
-    // Hesaba düşecek geçici (optimistik) kalem — fiyatı ekranda doğru görünsün diye
-    // yarımsa zaten yarılanmış birim fiyat tutulur (server da yarılar).
-    const optimistik: KalemDetay = {
-      id: -Date.now(),
-      urunId: urun.id,
-      urunAd: urun.name,
-      birimFiyat: pYarim ? urun.price / 2 : urun.price,
-      adet: pAdet,
-      yarim: pYarim,
-      durum: 'acik',
-      kaynakMasa: null,
-      not: not ?? null,
-    };
-
-    setEklenecek(null); // popover'ı ANINDA kapat
-    setHata(null);
-
-    baslat(async () => {
-      ekleOptimistik(optimistik); // hesapta ANINDA görün
-      try {
-        const aid = await ensureAdisyon();
-        await fetch('/api/kalem', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            adisyonId: aid,
-            urunId: urun.id,
-            urunAd: urun.name,
-            birimFiyat: urun.price,
-            adet: pAdet,
-            yarim: pYarim,
-            not,
-          }),
-        });
-      } catch {
-        /* sessiz geç — refresh gerçeği geri getirir */
-      }
-      router.refresh(); // transition içinde → gerçek veri gelene dek optimistik korunur
     });
   }
 
@@ -315,7 +486,7 @@ export function AdisyonClient({
             {aktifGrup?.urunler.map((u) => (
             <button
               key={u.id}
-              onClick={() => acEkle(u)}
+              onClick={() => hizliEkle(u)}
               disabled={!u.available}
               className={`group overflow-hidden rounded-xl border border-slate-800 bg-slate-900/50 text-left transition-transform active:scale-[0.97] ${
                 u.available ? 'hover:border-slate-600' : 'opacity-50'
@@ -392,6 +563,8 @@ export function AdisyonClient({
                 kalemler={kendi}
                 secili={secili}
                 onToggle={toggleSecili}
+                onDuzenle={duzenleAc}
+                onSil={kalemSil}
               />
               {ekGruplar.map(([kaynak, ks]) => (
                 <div key={kaynak}>
@@ -402,9 +575,34 @@ export function AdisyonClient({
                     kalemler={ks}
                     secili={secili}
                     onToggle={toggleSecili}
+                    onDuzenle={duzenleAc}
+                    onSil={kalemSil}
                   />
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* İptaller — silinen kalemlerin izi (denetim) */}
+          {detay.iptaller.length > 0 && (
+            <div className="mt-3 border-t border-slate-800 pt-2">
+              <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-rose-400/70">
+                İptaller ({detay.iptaller.length})
+              </div>
+              <ul className="space-y-0.5">
+                {detay.iptaller.map((i) => (
+                  <li
+                    key={i.id}
+                    className="flex items-center gap-2 px-2 text-xs text-slate-500"
+                  >
+                    <span className="min-w-0 flex-1 truncate line-through">
+                      {i.urunAd}
+                      {i.adet > 1 && ` ×${i.adet}`}
+                    </span>
+                    <span className="shrink-0 tabular-nums">{para(i.tutar)}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
         </div>
@@ -439,6 +637,29 @@ export function AdisyonClient({
             <span>Toplam</span>
             <span className="tabular-nums">{para(optToplam)}</span>
           </div>
+          {adisyonId && (
+            <button
+              onClick={indirimAc}
+              disabled={islem}
+              className="mt-1 flex w-full cursor-pointer items-center justify-between rounded-lg border border-dashed border-slate-700 px-2.5 py-1.5 text-sm text-slate-300 hover:border-rose-400/50 hover:bg-rose-500/5 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <span className="flex items-center gap-1">
+                <span>🏷️ İndirim</span>
+                {detay.indirimTip && (
+                  <span className="text-rose-300">
+                    (
+                    {detay.indirimTip === 'yuzde'
+                      ? `%${detay.indirimDeger}`
+                      : para(detay.indirimDeger)}
+                    )
+                  </span>
+                )}
+              </span>
+              <span className="tabular-nums font-semibold text-rose-300">
+                {optIndirim > 0 ? `-${para(optIndirim)}` : 'Ekle +'}
+              </span>
+            </button>
+          )}
           {detay.tahsilatToplam > 0 && (
             <div className="flex items-center justify-between text-sm text-amber-300/80">
               <span>Ödenen</span>
@@ -660,29 +881,30 @@ export function AdisyonClient({
         </ModalKabuk>
       )}
 
-      {/* POPOVER: Ürün ekle — adet + porsiyon + not */}
-      {eklenecek && (
+      {/* POPOVER: Sepet kalemini düzenle — adet + porsiyon + not + sil */}
+      {duzenle && (() => {
+        const baz = duzenle.yarim ? duzenle.birimFiyat * 2 : duzenle.birimFiyat;
+        const portionable =
+          urunMap.get(duzenle.urunId)?.portionable ?? duzenle.yarim;
+        return (
         <ModalKabuk
-          baslik={eklenecek.name}
-          onClose={() => setEklenecek(null)}
+          baslik={duzenle.urunAd}
+          onClose={() => setDuzenle(null)}
         >
           <div className="flex items-center gap-3">
-            {eklenecek.image ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={eklenecek.image}
-                alt={eklenecek.name}
-                className="h-16 w-16 rounded-xl object-cover"
-              />
-            ) : (
-              <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-slate-800 text-2xl opacity-40">
-                🍽️
-              </div>
-            )}
+            <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-slate-800 text-2xl opacity-40">
+              🍽️
+            </div>
             <div className="text-sm text-amber-300">
-              {para(pYarim ? eklenecek.price / 2 : eklenecek.price)}
-              {pYarim && (
-                <span className="ml-1 text-xs text-slate-500">(yarım)</span>
+              {pIkram ? (
+                <span className="text-emerald-300">İkram (ücretsiz)</span>
+              ) : (
+                <>
+                  {para(pYarim ? baz / 2 : baz)}
+                  {pYarim && (
+                    <span className="ml-1 text-xs text-slate-500">(yarım)</span>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -710,7 +932,7 @@ export function AdisyonClient({
           </div>
 
           {/* Porsiyon */}
-          {eklenecek.portionable && (
+          {portionable && (
             <div className="mt-3 grid grid-cols-2 gap-2">
               <button
                 onClick={() => setPYarim(false)}
@@ -730,10 +952,23 @@ export function AdisyonClient({
                     : 'border border-slate-700 text-slate-300'
                 }`}
               >
-                ½ Yarım ({para(eklenecek.price / 2)})
+                ½ Yarım ({para(baz / 2)})
               </button>
             </div>
           )}
+
+          {/* İkram — ücretsiz; toplama girmez ama fişte/ekranda görünür */}
+          <button
+            onClick={() => setPIkram((v) => !v)}
+            className={`mt-3 flex w-full items-center justify-between rounded-lg py-2 px-3 text-sm font-semibold ${
+              pIkram
+                ? 'border-2 border-emerald-400 bg-emerald-400/10 text-emerald-200'
+                : 'border border-slate-700 text-slate-300'
+            }`}
+          >
+            <span>🎁 İkram (ücretsiz)</span>
+            <span>{pIkram ? 'Açık ✓' : 'Kapalı'}</span>
+          </button>
 
           {/* Not çipleri */}
           <div className="mt-4">
@@ -766,15 +1001,90 @@ export function AdisyonClient({
           </div>
 
           <button
-            onClick={eklePopoveriOnayla}
+            onClick={duzenleOnayla}
             disabled={islem}
             className="mt-4 w-full rounded-xl bg-emerald-600 py-2.5 font-bold text-white hover:bg-emerald-500 disabled:opacity-50"
           >
-            Hesaba ekle ·{' '}
-            {para((pYarim ? eklenecek.price / 2 : eklenecek.price) * pAdet)}
+            Kaydet · {pIkram ? 'İkram' : para((pYarim ? baz / 2 : baz) * pAdet)}
+          </button>
+          <button
+            onClick={duzenleSil}
+            disabled={islem}
+            className="mt-2 w-full rounded-xl border border-rose-500/40 py-2 text-sm font-semibold text-rose-300 hover:bg-rose-500/10 disabled:opacity-50"
+          >
+            Kalemi sil
           </button>
         </ModalKabuk>
-      )}
+        );
+      })()}
+
+      {/* MODAL: İndirim (hesap geneli — % veya ₺) */}
+      {modal === 'indirim' && (() => {
+        const deger = Number(indDeger) || 0;
+        const onizleme =
+          indTip === 'yuzde'
+            ? Math.min((optToplam * deger) / 100, optToplam)
+            : Math.min(deger, optToplam);
+        const gecersiz = !(deger > 0) || (indTip === 'yuzde' && deger > 100);
+        return (
+        <ModalKabuk baslik="İndirim" onClose={() => setModal(null)}>
+          <div className="mb-3 grid grid-cols-2 gap-1">
+            {(['yuzde', 'tutar'] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setIndTip(t)}
+                className={`rounded-lg py-2 text-sm font-semibold ${
+                  indTip === t
+                    ? 'bg-slate-100 text-slate-900'
+                    : 'bg-slate-800 text-slate-300'
+                }`}
+              >
+                {t === 'yuzde' ? '% Yüzde' : '₺ Tutar'}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              inputMode="numeric"
+              autoFocus
+              value={indDeger}
+              onChange={(e) => setIndDeger(e.target.value)}
+              placeholder={indTip === 'yuzde' ? 'Örn. 10' : 'Tutar (₺)'}
+              className="flex-1 rounded-lg border border-slate-600 bg-slate-800 px-3 py-2.5 tabular-nums outline-none focus:border-amber-400"
+            />
+            <span className="text-lg font-bold text-slate-400">
+              {indTip === 'yuzde' ? '%' : '₺'}
+            </span>
+          </div>
+
+          <div className="mt-3 flex items-center justify-between rounded-lg bg-slate-800 px-3 py-2 text-sm">
+            <span className="text-slate-400">
+              Ara toplam {para(optToplam)} · indirim
+            </span>
+            <b className="tabular-nums text-rose-300">-{para(onizleme)}</b>
+          </div>
+
+          <button
+            onClick={() => indirimUygula(indTip, deger)}
+            disabled={islem || gecersiz}
+            className="mt-3 w-full rounded-xl bg-emerald-600 py-2.5 font-bold text-white hover:bg-emerald-500 disabled:opacity-50"
+          >
+            Uygula
+          </button>
+          {detay.indirimTip && (
+            <button
+              onClick={() => indirimUygula(null, 0)}
+              disabled={islem}
+              className="mt-2 w-full rounded-xl border border-rose-500/40 py-2 text-sm font-semibold text-rose-300 hover:bg-rose-500/10 disabled:opacity-50"
+            >
+              İndirimi kaldır
+            </button>
+          )}
+        </ModalKabuk>
+        );
+      })()}
 
       {/* MODAL: Hesap fişi (önizleme + yazdır) */}
       {modal === 'fis' && (
@@ -798,10 +1108,14 @@ function KalemGrubu({
   kalemler,
   secili,
   onToggle,
+  onDuzenle,
+  onSil,
 }: {
   kalemler: KalemDetay[];
   secili: Set<number>;
   onToggle: (id: number) => void;
+  onDuzenle: (k: KalemDetay) => void;
+  onSil: (k: KalemDetay) => void;
 }) {
   return (
     <ul className="space-y-1">
@@ -814,19 +1128,27 @@ function KalemGrubu({
               odendi ? 'opacity-50' : 'hover:bg-slate-800/50'
             }`}
           >
-            {!odendi ? (
+            {odendi ? (
+              <span className="w-4 shrink-0 text-center text-[10px] text-emerald-400">
+                ✓
+              </span>
+            ) : k.ikram ? (
+              // İkram ücretsiz — ödemeye seçilemez
+              <span className="w-4 shrink-0 text-center text-[11px]">🎁</span>
+            ) : (
               <input
                 type="checkbox"
                 checked={secili.has(k.id)}
                 onChange={() => onToggle(k.id)}
                 className="h-4 w-4 shrink-0 accent-emerald-500"
               />
-            ) : (
-              <span className="w-4 shrink-0 text-center text-[10px] text-emerald-400">
-                ✓
-              </span>
             )}
-            <span className="flex min-w-0 flex-1 flex-col">
+            <button
+              type="button"
+              onClick={() => onDuzenle(k)}
+              disabled={odendi}
+              className="flex min-w-0 flex-1 flex-col text-left enabled:cursor-pointer"
+            >
               <span className="flex items-center gap-1.5">
                 <span className={`truncate ${odendi ? 'line-through' : ''}`}>
                   {k.urunAd}
@@ -834,6 +1156,11 @@ function KalemGrubu({
                 {k.yarim && (
                   <span className="shrink-0 rounded bg-amber-500/20 px-1 text-[10px] font-bold text-amber-300">
                     ½
+                  </span>
+                )}
+                {k.ikram && (
+                  <span className="shrink-0 rounded bg-emerald-500/20 px-1 text-[10px] font-bold text-emerald-300">
+                    İkram
                   </span>
                 )}
                 {k.adet > 1 && (
@@ -845,10 +1172,25 @@ function KalemGrubu({
                   {k.not}
                 </span>
               )}
+            </button>
+            <span
+              className={`shrink-0 tabular-nums ${
+                k.ikram ? 'text-emerald-300' : 'text-slate-200'
+              }`}
+            >
+              {k.ikram ? '₺0' : para(k.birimFiyat * k.adet)}
             </span>
-            <span className="shrink-0 tabular-nums text-slate-200">
-              {para(k.birimFiyat * k.adet)}
-            </span>
+            {!odendi && (
+              <button
+                type="button"
+                onClick={() => onSil(k)}
+                aria-label="Kalemi sil"
+                title="Kalemi sil"
+                className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-slate-500 hover:bg-rose-500/15 hover:text-rose-300"
+              >
+                ✕
+              </button>
+            )}
           </li>
         );
       })}

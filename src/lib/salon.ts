@@ -42,6 +42,7 @@ export async function getSalon(): Promise<SalonOzet> {
           en: m.en,
           sekil: m.sekil,
           tip: m.tip as MasaTip,
+          kapasite: m.kapasite,
           adisyon: null,
         };
       }
@@ -54,8 +55,13 @@ export async function getSalon(): Promise<SalonOzet> {
           birimFiyat: Number(k.birimFiyat),
           adet: k.adet,
           durum: k.durum,
+          ikram: k.ikram,
         }));
-        const { toplam, kalan } = kalanHesapla(kalemler, Number(a.odenenTutar));
+        const { toplam, kalan } = kalanHesapla(
+          kalemler,
+          Number(a.odenenTutar),
+          Number(a.indirim)
+        );
         const kismiOdeme = a.tahsilatlar.length > 0 && kalan > 0.001;
 
         adisyon = {
@@ -82,16 +88,31 @@ export async function getSalon(): Promise<SalonOzet> {
         en: m.en,
         sekil: m.sekil,
         tip: 'masa' as const,
+        kapasite: m.kapasite,
         adisyon,
       };
     }),
   }));
 
   const { gte, lt } = gunAraligi();
-  const ciroAgg = await db.tahsilat.aggregate({
-    _sum: { tutar: true },
-    where: { zaman: { gte, lt } },
-  });
+  // Gün özeti: ciro Tahsilat'tan; iptal/indirim aggregate; ikram kalem kalem
+  // (Prisma _sum iki kolonu çarpamaz) — günlük ikram hacmi küçük, reduce yeterli.
+  const [ciroAgg, iptalAgg, indirimAgg, ikramKalemler] = await Promise.all([
+    db.tahsilat.aggregate({ _sum: { tutar: true }, where: { zaman: { gte, lt } } }),
+    db.iptal.aggregate({ _sum: { tutar: true }, where: { zaman: { gte, lt } } }),
+    db.adisyon.aggregate({
+      _sum: { indirim: true },
+      where: { kapanis: { gte, lt } }, // kapanan hesaplarda kesinleşen indirim
+    }),
+    db.adisyonKalem.findMany({
+      where: { ikram: true, zaman: { gte, lt } },
+      select: { birimFiyat: true, adet: true },
+    }),
+  ]);
+  const gunIkram = ikramKalemler.reduce(
+    (s, k) => s + Number(k.birimFiyat) * k.adet,
+    0
+  );
 
   return {
     bolgeler: bolgeOzet,
@@ -101,6 +122,9 @@ export async function getSalon(): Promise<SalonOzet> {
       odemeBekleyen,
       acikHesapToplam,
       gunlukCiro: Number(ciroAgg._sum.tutar ?? 0),
+      gunIptal: Number(iptalAgg._sum.tutar ?? 0),
+      gunIkram,
+      gunIndirim: Number(indirimAgg._sum.indirim ?? 0),
     },
   };
 }

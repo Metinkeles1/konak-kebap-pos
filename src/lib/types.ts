@@ -29,6 +29,7 @@ export type MasaOzet = {
   en: number;
   sekil: string;
   tip: MasaTip;
+  kapasite: number;
   adisyon: AdisyonOzet | null;
 };
 
@@ -47,5 +48,8 @@ export type SalonOzet = {
     odemeBekleyen: number;
     acikHesapToplam: number;
     gunlukCiro: number;
+    gunIptal: number; // bugün iptal edilen kalem tutarı
+    gunIkram: number; // bugün ikram edilen tutar
+    gunIndirim: number; // bugün kapanan hesaplardaki toplam indirim
   };
 };

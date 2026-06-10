@@ -19,7 +19,8 @@ export async function POST(req: Request) {
 
   const sonuc = await db.$transaction(async (tx) => {
     const kalemler = await tx.adisyonKalem.findMany({
-      where: { id: { in: kalemIds }, adisyonId, durum: 'acik' },
+      // ikram=false: ücretsiz kalemler tahsilata girmez
+      where: { id: { in: kalemIds }, adisyonId, durum: 'acik', ikram: false },
     });
     if (kalemler.length === 0) throw new Error('Seçili açık kalem yok');
 

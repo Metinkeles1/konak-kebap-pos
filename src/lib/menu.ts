@@ -35,8 +35,9 @@ const BASLIK: Record<string, string> = {
 const MENU = menuData as Urun[];
 
 // Snapshot'tan menüyü döndürür (anında, network yok). async — çağıranlar değişmesin.
+// Sadece aktif ürünler — pakette available:false yapılan ürün POS menüsünde hiç görünmez.
 export async function getMenu(): Promise<Urun[]> {
-  return MENU;
+  return MENU.filter((u) => u.available);
 }
 
 // Kategoriye göre grupla (boş gruplar atlanır)

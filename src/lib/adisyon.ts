@@ -8,9 +8,18 @@ export type KalemDetay = {
   birimFiyat: number;
   adet: number;
   yarim: boolean;
+  ikram: boolean; // ücretsiz — toplama girmez, ekranda/fişte görünür
   durum: string; // "acik" | "odendi"
   kaynakMasa: string | null;
   not: string | null;
+};
+
+export type IptalKaydi = {
+  id: number;
+  urunAd: string;
+  adet: number;
+  tutar: number;
+  zaman: string;
 };
 
 export type HedefMasa = {
@@ -27,11 +36,15 @@ export type AdisyonDetay = {
   adisyonId: number | null; // null = henüz açık adisyon yok
   acilis: string | null;
   kalemler: KalemDetay[];
-  toplam: number;
+  toplam: number; // ikram hariç ara toplam
+  indirim: number; // etkin indirim ₺
+  indirimTip: string | null; // "yuzde" | "tutar" | null
+  indirimDeger: number; // girilen değer (%10 → 10)
   kalan: number;
   odenenTutar: number;
   tahsilatToplam: number;
   kismiOdeme: boolean;
+  iptaller: IptalKaydi[]; // bu adisyonda iptal edilen kalemler
   hedefMasalar: HedefMasa[]; // bu masa hariç tüm masalar (taşıma/birleştirme)
 };
 
@@ -46,6 +59,7 @@ export async function getAdisyonDetay(masaId: number): Promise<AdisyonDetay | nu
           include: {
             kalemler: { orderBy: { id: 'asc' } },
             tahsilatlar: true,
+            iptaller: { orderBy: { id: 'asc' } },
           },
         },
       },
@@ -70,6 +84,7 @@ export async function getAdisyonDetay(masaId: number): Promise<AdisyonDetay | nu
         birimFiyat: Number(k.birimFiyat),
         adet: k.adet,
         yarim: k.yarim,
+        ikram: k.ikram,
         durum: k.durum,
         kaynakMasa: k.kaynakMasa,
         not: k.not,
@@ -77,14 +92,30 @@ export async function getAdisyonDetay(masaId: number): Promise<AdisyonDetay | nu
     : [];
 
   const odenenTutar = a ? Number(a.odenenTutar) : 0;
+  const indirim = a ? Number(a.indirim) : 0;
   const { toplam, kalemOdenen, kalan } = kalanHesapla(
-    kalemler.map((k) => ({ birimFiyat: k.birimFiyat, adet: k.adet, durum: k.durum })),
-    odenenTutar
+    kalemler.map((k) => ({
+      birimFiyat: k.birimFiyat,
+      adet: k.adet,
+      durum: k.durum,
+      ikram: k.ikram,
+    })),
+    odenenTutar,
+    indirim
   );
   const tahsilatToplam = a
     ? a.tahsilatlar.reduce((s, t) => s + Number(t.tutar), 0)
     : 0;
   const kismiOdeme = (odenenTutar > 0 || kalemOdenen > 0) && kalan > 0.001;
+  const iptaller: IptalKaydi[] = a
+    ? a.iptaller.map((i) => ({
+        id: i.id,
+        urunAd: i.urunAd,
+        adet: i.adet,
+        tutar: Number(i.tutar),
+        zaman: i.zaman.toISOString(),
+      }))
+    : [];
 
   const hedefMasalar: HedefMasa[] = digerMasalar.map((m) => {
     const acik = m.adisyonlar[0] ?? null;
@@ -104,10 +135,14 @@ export async function getAdisyonDetay(masaId: number): Promise<AdisyonDetay | nu
     acilis: a?.acilis.toISOString() ?? null,
     kalemler,
     toplam,
+    indirim,
+    indirimTip: a?.indirimTip ?? null,
+    indirimDeger: a ? Number(a.indirimDeger) : 0,
     kalan,
     odenenTutar,
     tahsilatToplam,
     kismiOdeme,
+    iptaller,
     hedefMasalar,
   };
 }

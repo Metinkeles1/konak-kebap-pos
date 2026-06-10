@@ -8,11 +8,13 @@ import { gecenDakika, gecenSure, para } from '@/lib/format';
 const UZUN_DK = 120; // 2 saatten uzun açık masa = uyarı
 
 // Sandalye konumları (footprint kenarındaki paya yerleşir). color: currentColor.
-// Uzun kenara çok sandalye, kısa kenarlara birer tane.
+// Sandalye SAYISI = kapasite; iki ana kenara bölünür (üst/alt veya sol/sağ),
+// yan kenarlar boş kalır. Örn. 4 kişilik = 2 üst + 2 alt. Tek sayıda üst kenara
+// bir fazla düşer. dikdörtgen+dikey ise ana kenarlar sol/sağ olur.
 function sandalyeler(
   dikdortgen: boolean,
   dikey: boolean,
-  en: number
+  kapasite: number
 ): CSSProperties[] {
   const bar = (s: CSSProperties): CSSProperties => ({
     position: 'absolute',
@@ -25,27 +27,24 @@ function sandalyeler(
   const yan = (pct: number, sag = false): CSSProperties =>
     bar({ top: `${pct}%`, marginTop: -9, width: 6, height: 18, [sag ? 'right' : 'left']: 2 });
 
-  if (dikdortgen) {
-    const pcts = en >= 2 ? [22, 50, 78] : [30, 70];
-    if (dikey) {
-      // uzun kenarlar = sol/sağ
-      return [
-        ...pcts.map((p) => yan(p, false)),
-        ...pcts.map((p) => yan(p, true)),
-        ust(50, false),
-        ust(50, true),
-      ];
-    }
-    // uzun kenarlar = üst/alt
+  const k = Math.max(1, kapasite);
+  const aN = Math.ceil(k / 2); // ana kenar 1 (fazlalık buraya)
+  const bN = Math.floor(k / 2); // ana kenar 2
+  // n sandalyeyi kenar boyunca dengeli dağıt: (i+1)/(n+1) → ör. 2 → %33, %67
+  const dagit = (n: number) =>
+    Array.from({ length: n }, (_, i) => ((i + 1) / (n + 1)) * 100);
+
+  // dikdörtgen + dikey: ana kenarlar sol/sağ; diğer tüm hallerde üst/alt
+  if (dikdortgen && dikey) {
     return [
-      ...pcts.map((p) => ust(p, false)),
-      ...pcts.map((p) => ust(p, true)),
-      yan(50, false),
-      yan(50, true),
+      ...dagit(aN).map((p) => yan(p, false)),
+      ...dagit(bN).map((p) => yan(p, true)),
     ];
   }
-  // kare / yuvarlak — 4 kenar
-  return [ust(50, false), ust(50, true), yan(50, false), yan(50, true)];
+  return [
+    ...dagit(aN).map((p) => ust(p, false)),
+    ...dagit(bN).map((p) => ust(p, true)),
+  ];
 }
 
 export function MasaKart({
@@ -86,7 +85,7 @@ export function MasaKart({
         className="pointer-events-none absolute inset-0"
         style={{ color: a ? 'rgba(217,119,6,0.6)' : 'rgba(100,116,139,0.55)' }}
       >
-        {sandalyeler(dikdortgen, dikey, masa.en).map((st, i) => (
+        {sandalyeler(dikdortgen, dikey, masa.kapasite).map((st, i) => (
           <span key={i} style={st} />
         ))}
       </div>
@@ -106,13 +105,19 @@ export function MasaKart({
           </div>
         )}
 
+        {/* Kapasite rozeti — oturtma kararı için bir bakışta kişi sayısı */}
+        <span className="pointer-events-none absolute right-1 top-1 flex items-center gap-0.5 text-[9px] font-bold leading-none opacity-55">
+          {masa.kapasite}
+          <span className="text-[8px]">👤</span>
+        </span>
+
         <span className="text-[15px] font-bold leading-none tracking-tight">
           {masa.ad}
         </span>
 
         {!a ? (
           <span className="mt-1 text-[10px] uppercase tracking-[0.15em] opacity-50">
-            boş
+            {masa.kapasite} kişi
           </span>
         ) : (
           <>
