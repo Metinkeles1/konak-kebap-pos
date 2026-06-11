@@ -82,6 +82,9 @@ export function AdisyonClient({
   const [arac, setArac] = useState<OdemeArac>('nakit'); // seçili ödeme aracı
   const [islem, setIslem] = useState(false);
   const [hata, setHata] = useState<string | null>(null);
+  // Mobilde Hesap, alttan açılan modal (bottom-sheet). Masaüstünde yan panel
+  // her zaman görünür; bu durum yalnızca <md ekranlarda etkili.
+  const [hesapAcik, setHesapAcik] = useState(false);
 
   // Düzenle popover'ı: dokunulan SEPET KALEMİ + adet/porsiyon/not seçimi
   const [duzenle, setDuzenle] = useState<KalemDetay | null>(null);
@@ -530,7 +533,7 @@ export function AdisyonClient({
     <div className="flex min-h-0 flex-1 flex-col md:flex-row">
       {/* SOL — Menü */}
       <div className="flex min-h-0 flex-1 flex-col border-b border-slate-800 md:border-b-0 md:border-r">
-        <header className="flex items-center gap-3 border-b border-slate-800 bg-slate-900/60 px-4 py-3">
+        <header className="flex shrink-0 items-center gap-3 border-b border-slate-800 bg-slate-900/60 px-4 py-3">
           <Link
             href="/adisyon"
             className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
@@ -547,7 +550,7 @@ export function AdisyonClient({
           </div>
         </header>
 
-        <div className="no-scrollbar flex gap-1 overflow-x-auto border-b border-slate-800 px-3 py-2">
+        <div className="no-scrollbar flex shrink-0 gap-1 overflow-x-auto border-b border-slate-800 px-3 py-2">
           {gruplar.map((g) => (
             <button
               key={g.key}
@@ -611,11 +614,41 @@ export function AdisyonClient({
           ))}
           </div>
         </div>
+
+        {/* Mobil: alt özet çubuğu — dokununca Hesap modalını açar */}
+        <button
+          type="button"
+          onClick={() => setHesapAcik(true)}
+          className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-800 bg-slate-900/80 px-4 py-3 text-left backdrop-blur md:hidden"
+        >
+          <span className="flex items-center gap-2 text-slate-200">
+            <Ikon ad="fis" className="h-5 w-5 text-slate-400" />
+            <span className="text-sm font-semibold">
+              Hesap{kalemAdet > 0 && ` · ${kalemAdet} ürün`}
+            </span>
+          </span>
+          <span className="flex items-baseline gap-1.5">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Kalan
+            </span>
+            <span className="text-lg font-extrabold tabular-nums text-emerald-300">
+              {para(Math.max(0, optKalan))}
+            </span>
+          </span>
+        </button>
       </div>
 
-      {/* SAĞ — Hesap */}
-      <aside className="flex max-h-[45vh] min-h-0 w-full flex-col bg-slate-900/40 md:max-h-none md:w-96">
-        <div className="flex items-center justify-between gap-2 border-b border-slate-800 bg-slate-900/60 px-4 py-3">
+      {/* SAĞ — Hesap: mobilde alttan açılan modal, masaüstünde sabit yan panel */}
+      <div
+        onClick={() => setHesapAcik(false)}
+        className={`${
+          hesapAcik ? 'flex' : 'hidden'
+        } fixed inset-0 z-40 flex-col justify-end bg-black/60 md:static md:z-auto md:flex md:w-96 md:justify-stretch md:bg-transparent`}
+      >
+      <aside
+        onClick={(e) => e.stopPropagation()}
+        className="flex max-h-[88vh] min-h-0 w-full flex-col rounded-t-2xl bg-slate-900 shadow-2xl md:max-h-none md:flex-1 md:rounded-none md:bg-slate-900/40 md:shadow-none">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-800 bg-slate-900/60 px-4 py-3">
           <div className="flex min-w-0 items-center gap-2">
             <span className="text-sm font-semibold text-slate-200">Hesap</span>
             {kalemAdet > 0 && (
@@ -629,15 +662,25 @@ export function AdisyonClient({
               </span>
             )}
           </div>
-          {optimistikKalemler.length > 0 && (
+          <div className="flex shrink-0 items-center gap-2">
+            {optimistikKalemler.length > 0 && (
+              <button
+                onClick={() => setModal('fis')}
+                className="flex items-center gap-1.5 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:border-slate-500 hover:bg-slate-800 hover:text-slate-100"
+              >
+                <Ikon ad="fis" className="h-4 w-4" />
+                Fiş
+              </button>
+            )}
+            {/* Mobil: modalı kapat (masaüstünde panel sabit) */}
             <button
-              onClick={() => setModal('fis')}
-              className="flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:border-slate-500 hover:bg-slate-800 hover:text-slate-100"
+              onClick={() => setHesapAcik(false)}
+              aria-label="Hesabı kapat"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-800 hover:text-slate-100 md:hidden"
             >
-              <Ikon ad="fis" className="h-4 w-4" />
-              Fiş
+              ✕
             </button>
-          )}
+          </div>
         </div>
 
         <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 py-2">
@@ -699,7 +742,7 @@ export function AdisyonClient({
 
         {/* Seçim bandı */}
         {seciliKalemler.length > 0 && (
-          <div className="flex items-center gap-2 border-t border-sky-500/20 bg-sky-500/10 px-3 py-2 text-sm">
+          <div className="flex shrink-0 items-center gap-2 border-t border-sky-500/20 bg-sky-500/10 px-3 py-2 text-sm">
             <span className="text-slate-200">
               <b className="tabular-nums text-sky-300">{seciliKalemler.length}</b>{' '}
               seçili · <b className="tabular-nums">{para(seciliToplam)}</b>
@@ -726,7 +769,7 @@ export function AdisyonClient({
         )}
 
         {/* Toplam / KALAN + aksiyonlar */}
-        <div className="space-y-3 border-t border-slate-800 bg-slate-900/60 px-4 py-3.5">
+        <div className="shrink-0 space-y-2.5 border-t border-slate-800 bg-slate-900/60 px-3 py-3 md:space-y-3 md:px-4 md:py-3.5">
           {/* Özet satırları */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between text-sm text-slate-400">
@@ -866,6 +909,7 @@ export function AdisyonClient({
           )}
         </div>
       </aside>
+      </div>
 
       {/* MODAL: Böl */}
       {modal === 'bol' && (
