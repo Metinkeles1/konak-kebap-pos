@@ -13,7 +13,8 @@
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
     "menu:sync": "tsx scripts/menu-sync.ts",
-    "kroki:yerlesim": "node --env-file=.env --import tsx scripts/kroki-yerlesim.ts"
+    "kroki:yerlesim": "node --env-file=.env --import tsx scripts/kroki-yerlesim.ts",
+    "kat:ata": "node --env-file=.env --import tsx scripts/kat-ata.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

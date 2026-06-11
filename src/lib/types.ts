@@ -37,6 +37,11 @@ export type BolgeOzet = {
   id: number;
   ad: string;
   sira: number;
+  kat: string; // üst sekme grubu — aynı kat'taki bölgeler tek krokide yan yana
+  odaX: number; // oda çerçevesinin kat krokisindeki konumu (px)
+  odaY: number;
+  odaW: number; // oda ölçüsü (0 = masalardan otomatik hesapla)
+  odaH: number;
   masalar: MasaOzet[];
 };
 

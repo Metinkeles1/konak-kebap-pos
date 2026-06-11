@@ -1,7 +1,15 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
-const SEKILLER = ['kare', 'yuvarlak', 'dikdortgen', 'dikdortgen-d'];
+// Yatay + döndürülmüş ('-d' = dikey) varyantlar. Her şekil döndürülebilir.
+const SEKILLER = [
+  'kare',
+  'kare-d',
+  'yuvarlak',
+  'yuvarlak-d',
+  'dikdortgen',
+  'dikdortgen-d',
+];
 
 // Düzenle modu: masanın konumu (x/y), şekli (sekil/en), adı ve kapasitesi kaydedilir.
 export async function PATCH(req: Request) {

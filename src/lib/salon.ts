@@ -44,6 +44,11 @@ export async function getSalon(): Promise<SalonOzet> {
     id: b.id,
     ad: b.ad,
     sira: b.sira,
+    kat: b.kat,
+    odaX: b.odaX,
+    odaY: b.odaY,
+    odaW: b.odaW,
+    odaH: b.odaH,
     masalar: b.masalar.map((m) => {
       // Kasa/mobilya: sadece krokide çizilir, adisyon/sayım yok.
       if (m.tip !== 'masa') {

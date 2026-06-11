@@ -21,10 +21,17 @@ import {
   type DragEndEvent,
   type DragMoveEvent,
 } from '@dnd-kit/core';
-import type { GelalOzet, MasaOzet, MasaTip, SalonOzet } from '@/lib/types';
+import type { BolgeOzet, GelalOzet, MasaOzet, MasaTip, SalonOzet } from '@/lib/types';
 import { MasaKart } from '@/components/MasaKart';
 import { SabitEleman } from '@/components/SabitEleman';
-import { HIZA_ESIK, hizalaMerkez, masaBoyut, sekilBilgi } from '@/lib/kroki';
+import {
+  HIZA_ESIK,
+  hizalaMerkez,
+  masaBoyut,
+  odaBoyut,
+  sekilBilgi,
+  yonCevir,
+} from '@/lib/kroki';
 import { gecenSure, para } from '@/lib/format';
 import { useNow } from '@/lib/useNow';
 import {
@@ -42,6 +49,8 @@ type Onay =
   | { tip: 'sil'; masa: MasaOzet };
 type HedefMod = { tip: 'tasi' | 'birlestir'; src: MasaOzet };
 type Menu = { masa: MasaOzet; x: number; y: number };
+// Görünüm: bir kat'ı bütün (tüm bölgeler yan yana) ya da tek bölge göster.
+type Gorunum = { tip: 'kat'; kat: string } | { tip: 'bolge'; id: number };
 
 const SEKILLER: { key: MasaOzet['sekil']; label: string }[] = [
   { key: 'kare', label: '◻ Kare' },
@@ -62,7 +71,13 @@ const EKLENEBILIR: { tip: MasaTip; label: string }[] = [
 
 export function SalonClient({ initial }: { initial: SalonOzet }) {
   const [data, setData] = useState<SalonOzet>(initial);
-  const [aktifId, setAktifId] = useState<number>(initial.bolgeler[0]?.id ?? 0);
+  const [gorunum, setGorunum] = useState<Gorunum>(() => {
+    const b0 = [...initial.bolgeler].sort((a, b) => a.sira - b.sira)[0];
+    if (!b0) return { tip: 'kat', kat: 'Alt Kat' };
+    // İlk kat birden çok bölgeye sahipse bütün görünümle aç, değilse tek bölge.
+    const kacBolge = initial.bolgeler.filter((b) => b.kat === b0.kat).length;
+    return kacBolge > 1 ? { tip: 'kat', kat: b0.kat } : { tip: 'bolge', id: b0.id };
+  });
   const [gelalModu, setGelalModu] = useState(false); // Gel-Al sekmesi aktif mi
   const [gelalBekleyen, setGelalBekleyen] = useState(false); // "Yeni Gel-Al" oluşturuluyor
   const [duzenle, setDuzenle] = useState(false);
@@ -143,9 +158,123 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
     return () => window.removeEventListener('focus', onFocus);
   }, [refetch]);
 
-  const aktif = data.bolgeler.find((b) => b.id === aktifId) ?? data.bolgeler[0];
-  const masalar = useMemo(() => aktif?.masalar ?? [], [aktif]);
+  // Katlar (sıralı, benzersiz) — sekme grupları.
+  const katlar = useMemo(() => {
+    const sirali = [...data.bolgeler].sort((a, b) => a.sira - b.sira);
+    return [...new Set(sirali.map((b) => b.kat))];
+  }, [data.bolgeler]);
+
+  // Sekme listesi: çok bölgeli kat için ÖNCE "🗺 <kat>" (bütün) sekmesi, sonra
+  // o kat'ın her bölgesi ayrı; tek bölgeli kat için sadece bölge sekmesi.
+  const sekmeler = useMemo(() => {
+    const out: {
+      key: string;
+      label: string;
+      butun?: boolean;
+      gorunum: Gorunum;
+    }[] = [];
+    for (const kat of katlar) {
+      const bols = data.bolgeler
+        .filter((b) => b.kat === kat)
+        .sort((a, b) => a.sira - b.sira);
+      if (bols.length > 1) {
+        out.push({ key: `kat:${kat}`, label: `🗺 ${kat}`, butun: true, gorunum: { tip: 'kat', kat } });
+        for (const b of bols)
+          out.push({ key: `bolge:${b.id}`, label: b.ad, gorunum: { tip: 'bolge', id: b.id } });
+      } else if (bols[0]) {
+        out.push({ key: `bolge:${bols[0].id}`, label: bols[0].ad, gorunum: { tip: 'bolge', id: bols[0].id } });
+      }
+    }
+    return out;
+  }, [katlar, data.bolgeler]);
+
+  const sekmeAktif = useCallback(
+    (g: Gorunum) =>
+      g.tip === 'kat'
+        ? gorunum.tip === 'kat' && gorunum.kat === g.kat
+        : gorunum.tip === 'bolge' && gorunum.id === g.id,
+    [gorunum]
+  );
+
+  // Görünümdeki bölgeler: bütün → kat'ın tüm bölgeleri; tek → o bölge.
+  const gosterilenBolgeler = useMemo(() => {
+    if (gorunum.tip === 'kat')
+      return data.bolgeler
+        .filter((b) => b.kat === gorunum.kat)
+        .sort((a, b) => a.sira - b.sira);
+    const b = data.bolgeler.find((bb) => bb.id === gorunum.id);
+    return b ? [b] : [];
+  }, [gorunum, data.bolgeler]);
+
+  // Oda yerleşimi. Her oda çerçevesi İÇERİĞİNİ sarar (boş kenar payı kalmaz).
+  // Tek bölge: tek çerçeve, sol-üstte (ekranı doldurur).
+  // Bütün: dengeli paket — en büyük oda solda ve dikeyde ortalı, kalanlar sağda
+  // alt alta; kısa kolon dikeyde ortalanır → büyük oda "güzel ortalı" durur.
+  const yerlesim = useMemo(() => {
+    type Yer = { bolge: BolgeOzet; x: number; y: number; w: number; h: number };
+    const sonuc: Yer[] = [];
+    const olc = (b: BolgeOzet) => odaBoyut({ odaW: 0, odaH: 0 }, b.masalar);
+
+    if (gorunum.tip === 'bolge') {
+      const b = gosterilenBolgeler[0];
+      if (b) {
+        const s = olc(b);
+        sonuc.push({ bolge: b, x: 0, y: 0, w: s.w, h: s.h });
+      }
+      return sonuc;
+    }
+
+    const odalar = gosterilenBolgeler.map((b) => ({ bolge: b, ...olc(b) }));
+    if (odalar.length === 0) return sonuc;
+    if (odalar.length === 1) {
+      const o = odalar[0];
+      sonuc.push({ bolge: o.bolge, x: 0, y: 0, w: o.w, h: o.h });
+      return sonuc;
+    }
+
+    const GAP = 48;
+    const alanaGore = [...odalar].sort((a, b) => b.w * b.h - a.w * a.h);
+    const sol = alanaGore[0];
+    const sag = alanaGore.slice(1).sort((a, b) => a.bolge.sira - b.bolge.sira);
+
+    const solH = sol.h;
+    const sagH = sag.reduce((t, o) => t + o.h, 0) + GAP * (sag.length - 1);
+    const toplamH = Math.max(solH, sagH);
+
+    sonuc.push({
+      bolge: sol.bolge,
+      x: 0,
+      y: Math.round((toplamH - solH) / 2),
+      w: sol.w,
+      h: sol.h,
+    });
+
+    const sagX = sol.w + GAP;
+    let yy = Math.round((toplamH - sagH) / 2);
+    for (const o of sag) {
+      sonuc.push({ bolge: o.bolge, x: sagX, y: yy, w: o.w, h: o.h });
+      yy += o.h + GAP;
+    }
+    return sonuc;
+  }, [gorunum, gosterilenBolgeler]);
+
+  // Seçim / özet / mobil liste için görünümdeki tüm masalar (düz liste).
+  const masalar = useMemo(
+    () => gosterilenBolgeler.flatMap((b) => b.masalar),
+    [gosterilenBolgeler]
+  );
   const seciliEleman = masalar.find((m) => m.id === seciliMasaId) ?? null;
+
+  // "Ekle": seçili eleman varsa onun bölgesine, yoksa görünümün ilk bölgesine.
+  const ekleHedefBolge = useMemo(() => {
+    if (seciliMasaId != null) {
+      const b = gosterilenBolgeler.find((bb) =>
+        bb.masalar.some((m) => m.id === seciliMasaId)
+      );
+      if (b) return b;
+    }
+    return gosterilenBolgeler[0];
+  }, [seciliMasaId, gosterilenBolgeler]);
   const seciliMasa = seciliEleman?.tip === 'masa' ? seciliEleman : null;
   const seciliBilgi = sekilBilgi(seciliMasa?.sekil ?? 'kare');
 
@@ -207,14 +336,19 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
   // Düzenle modu: bölgeye yeni masa/eleman ekle (eklenince seç → konumlandır).
   const ekle = useCallback(
     async (tip: MasaTip) => {
-      if (!aktif) return;
+      if (!ekleHedefBolge) return;
       setEkleAcik(false);
-      const offset = (masalar.length % 6) * 28;
+      const offset = (ekleHedefBolge.masalar.length % 6) * 28;
       try {
         const res = await fetch('/api/masa/ekle', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ bolgeId: aktif.id, tip, x: 40 + offset, y: 40 + offset }),
+          body: JSON.stringify({
+            bolgeId: ekleHedefBolge.id,
+            tip,
+            x: 40 + offset,
+            y: 40 + offset,
+          }),
         });
         if (!res.ok) return;
         const { id } = await res.json();
@@ -224,25 +358,34 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
         /* yut */
       }
     },
-    [aktif, masalar.length, refetch]
+    [ekleHedefBolge, refetch]
   );
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
   );
 
+  // Bir masanın bağlı olduğu oda yerleşimini bul (hizalama hep aynı oda içinde).
+  const masaOda = useCallback(
+    (id: number) => yerlesim.find((o) => o.bolge.masalar.some((m) => m.id === id)),
+    [yerlesim]
+  );
+
   // ---- Düzenle modu: sürükle = taşı (snap + canlı kılavuz) ----
+  // Hizalama yalnız aynı oda içindeki komşulara; kılavuz çizgisi kat krokisi
+  // (canvas) koordinatında çizilir → oda offset + masanın yerel merkezi.
   const onDuzenleMove = useCallback(
     (e: DragMoveEvent) => {
       const id = Number(e.active.id);
-      const m = masalar.find((mm) => mm.id === id);
-      if (!m) return;
+      const oda = masaOda(id);
+      const m = oda?.bolge.masalar.find((mm) => mm.id === id);
+      if (!oda || !m) return;
       const b = masaBoyut(m);
       const cx = m.x + e.delta.x / olcek + b.w / 2;
       const cy = m.y + e.delta.y / olcek + b.h / 2;
       let gx: number | null = null;
       let gy: number | null = null;
-      for (const mm of masalar) {
+      for (const mm of oda.bolge.masalar) {
         if (mm.id === id) continue;
         const ob = masaBoyut(mm);
         const ocx = mm.x + ob.w / 2;
@@ -250,19 +393,23 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
         if (gx === null && Math.abs(cx - ocx) <= HIZA_ESIK) gx = ocx;
         if (gy === null && Math.abs(cy - ocy) <= HIZA_ESIK) gy = ocy;
       }
-      setKilavuz({ x: gx, y: gy });
+      setKilavuz({
+        x: gx === null ? null : oda.x + gx,
+        y: gy === null ? null : oda.y + gy,
+      });
     },
-    [masalar, olcek]
+    [masaOda, olcek]
   );
 
   const onDuzenleEnd = useCallback(
     (e: DragEndEvent) => {
       setKilavuz({ x: null, y: null });
       const id = Number(e.active.id);
-      const m = masalar.find((mm) => mm.id === id);
-      if (!m) return;
+      const oda = masaOda(id);
+      const m = oda?.bolge.masalar.find((mm) => mm.id === id);
+      if (!oda || !m) return;
       const b = masaBoyut(m);
-      const digerleri = masalar
+      const digerleri = oda.bolge.masalar
         .filter((mm) => mm.id !== id)
         .map((mm) => ({ x: mm.x, y: mm.y, ...masaBoyut(mm) }));
       const { x, y } = hizalaMerkez(
@@ -274,7 +421,7 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
       setSeciliMasaId(id);
       guncelleMasa(id, { x, y });
     },
-    [masalar, guncelleMasa, olcek]
+    [masaOda, guncelleMasa, olcek]
   );
 
   // ---- Normal mod: bir masayı diğerine sürükle = taşı/birleştir ----
@@ -340,16 +487,16 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
     refetch();
   }, [onay, refetch, seciliMasaId]);
 
+  // Kat krokisinin toplam ölçüsü = tüm oda çerçevelerinin sınır kutusu.
   const { w, h } = useMemo(() => {
     let mw = 0;
     let mh = 0;
-    for (const m of masalar) {
-      const b = masaBoyut(m);
-      mw = Math.max(mw, m.x + b.w);
-      mh = Math.max(mh, m.y + b.h);
+    for (const o of yerlesim) {
+      mw = Math.max(mw, o.x + o.w);
+      mh = Math.max(mh, o.y + o.h);
     }
     return { w: mw + 48, h: Math.max(mh + 56, 380) };
-  }, [masalar]);
+  }, [yerlesim]);
 
   // Krokiyi kapsayıcı alana otomatik sığdır (zoom). Boş alanı doldurur; büyük
   // ekranda büyür, küçük ekranda küçülür. Ölçek sürükleme matematiğine de yansır.
@@ -456,25 +603,33 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
         </span>
       </div>
 
-      {/* Bölge sekmeleri + Gel-Al sekmesi */}
-      <div className="flex gap-1 overflow-x-auto border-b border-slate-800 px-3 py-2">
-        {data.bolgeler.map((b) => (
-          <button
-            key={b.id}
-            onClick={() => {
-              setAktifId(b.id);
-              setGelalModu(false);
-              setSeciliMasaId(null);
-            }}
-            className={`shrink-0 rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-              !gelalModu && b.id === aktifId
-                ? 'bg-slate-100 text-slate-900'
-                : 'text-slate-300 hover:bg-slate-800'
-            }`}
-          >
-            {b.ad}
-          </button>
-        ))}
+      {/* Sekmeler: her kat için "🗺 <kat>" (bütün) + bölgeler ayrı + Gel-Al */}
+      <div className="flex items-center gap-1 overflow-x-auto border-b border-slate-800 px-3 py-2">
+        {sekmeler.map((s) => {
+          const aktif = !gelalModu && sekmeAktif(s.gorunum);
+          return (
+            <button
+              key={s.key}
+              onClick={() => {
+                setGorunum(s.gorunum);
+                setGelalModu(false);
+                setSeciliMasaId(null);
+              }}
+              className={`shrink-0 rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                aktif
+                  ? s.butun
+                    ? 'bg-sky-400 text-slate-900'
+                    : 'bg-slate-100 text-slate-900'
+                  : s.butun
+                    ? 'text-sky-300 hover:bg-sky-400/10'
+                    : 'text-slate-300 hover:bg-slate-800'
+              }`}
+            >
+              {s.label}
+            </button>
+          );
+        })}
+        <span className="mx-1 h-5 w-px shrink-0 bg-slate-700" />
         {/* Gel-Al (paket) — masaya bağlı olmayan siparişler */}
         <button
           onClick={() => {
@@ -535,31 +690,44 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
         </div>
       ) : (
         <div className="min-h-0 flex-1">
-          {/* Telefon: tek/iki kolon liste */}
-          <div className="pb-safe grid grid-cols-2 gap-3 overflow-auto p-4 sm:grid-cols-3 md:hidden">
-            {masalar.map((m) =>
-              m.tip !== 'masa' ? (
-                <div key={m.id} className="h-26">
-                  <SabitEleman masa={m} />
+          {/* Telefon: bölgeye göre gruplanmış liste (tek/iki kolon) */}
+          <div className="pb-safe overflow-auto p-4 md:hidden">
+            {gosterilenBolgeler.map((b) => (
+              <div key={b.id} className="mb-5 last:mb-0">
+                {gosterilenBolgeler.length > 1 && (
+                  <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-sky-300/60">
+                    {b.ad}
+                    <span className="text-slate-500">· {b.masalar.length}</span>
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  {b.masalar.map((m) =>
+                    m.tip !== 'masa' ? (
+                      <div key={m.id} className="h-26">
+                        <SabitEleman masa={m} />
+                      </div>
+                    ) : (
+                      <button
+                        key={m.id}
+                        onClick={() => masaTikla(m)}
+                        className="h-26 text-left"
+                      >
+                        <MasaKart
+                          masa={m}
+                          now={now}
+                          vurgulu={vurgu.has(m.id)}
+                          bekleyen={bekleyenId === m.id}
+                        />
+                      </button>
+                    )
+                  )}
                 </div>
-              ) : (
-                <button
-                  key={m.id}
-                  onClick={() => masaTikla(m)}
-                  className="h-26 text-left"
-                >
-                  <MasaKart
-                    masa={m}
-                    now={now}
-                    vurgulu={vurgu.has(m.id)}
-                    bekleyen={bekleyenId === m.id}
-                  />
-                </button>
-              )
-            )}
+              </div>
+            ))}
           </div>
 
-          {/* Tablet/Kasa: blueprint floor-plan — alana otomatik sığar (zoom) */}
+          {/* Tablet/Kasa: tek-ekran blueprint — kat'taki bölgeler komşu odalar
+              olarak yan yana çizilir; alana otomatik sığar (zoom). */}
           <div
             ref={kapsayiciRef}
             className="hidden h-full min-h-0 overflow-auto p-3 md:flex md:items-center md:justify-center"
@@ -569,10 +737,7 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
               style={{ width: w * olcek, height: h * olcek }}
             >
               <div
-                onClick={() => duzenle && setSeciliMasaId(null)}
-                className={`kroki-oda kroki-zemin absolute left-0 top-0 ${
-                  duzenle ? 'kroki-duzenle' : ''
-                }`}
+                className="absolute left-0 top-0"
                 style={{
                   width: w,
                   height: h,
@@ -580,84 +745,91 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
                   transformOrigin: 'top left',
                 }}
               >
-              <span className="pointer-events-none absolute left-4 top-2.5 z-0 text-[11px] font-semibold uppercase tracking-[0.3em] text-sky-300/35">
-                {aktif?.ad}
-              </span>
+                {/* Canlı hizalama kılavuzları (düzenle) — canvas koordinatında */}
+                {duzenle && kilavuz.x !== null && (
+                  <div
+                    className="pointer-events-none absolute bottom-0 top-0 z-30 w-px bg-sky-400"
+                    style={{ left: kilavuz.x, boxShadow: '0 0 8px rgba(56,189,248,0.9)' }}
+                  />
+                )}
+                {duzenle && kilavuz.y !== null && (
+                  <div
+                    className="pointer-events-none absolute left-0 right-0 z-30 h-px bg-sky-400"
+                    style={{ top: kilavuz.y, boxShadow: '0 0 8px rgba(56,189,248,0.9)' }}
+                  />
+                )}
 
-              {/* Canlı hizalama kılavuzları (düzenle) */}
-              {duzenle && kilavuz.x !== null && (
-                <div
-                  className="pointer-events-none absolute bottom-0 top-0 z-30 w-px bg-sky-400"
-                  style={{ left: kilavuz.x, boxShadow: '0 0 8px rgba(56,189,248,0.9)' }}
-                />
-              )}
-              {duzenle && kilavuz.y !== null && (
-                <div
-                  className="pointer-events-none absolute left-0 right-0 z-30 h-px bg-sky-400"
-                  style={{ top: kilavuz.y, boxShadow: '0 0 8px rgba(56,189,248,0.9)' }}
-                />
-              )}
-
-              {duzenle ? (
                 <DndContext
-                  id="salon-duzenle"
+                  id={duzenle ? 'salon-duzenle' : 'salon'}
                   sensors={sensors}
-                  onDragMove={onDuzenleMove}
-                  onDragEnd={onDuzenleEnd}
+                  {...(duzenle
+                    ? { onDragMove: onDuzenleMove, onDragEnd: onDuzenleEnd }
+                    : {
+                        collisionDetection: pointerWithin,
+                        onDragStart: onSalonStart,
+                        onDragEnd: onSalonEnd,
+                      })}
                 >
-                  {masalar.map((m) => (
-                    <SuruklenebilirMasa
-                      key={m.id}
-                      masa={m}
-                      now={now}
-                      vurgulu={vurgu.has(m.id)}
-                      secili={seciliMasaId === m.id}
-                      olcek={olcek}
-                      onSelect={() => setSeciliMasaId(m.id)}
-                    />
+                  {yerlesim.map((oda) => (
+                    <div
+                      key={oda.bolge.id}
+                      onClick={() => duzenle && setSeciliMasaId(null)}
+                      className={`kroki-oda kroki-zemin absolute ${
+                        duzenle ? 'kroki-duzenle' : ''
+                      }`}
+                      style={{ left: oda.x, top: oda.y, width: oda.w, height: oda.h }}
+                    >
+                      <span className="pointer-events-none absolute left-4 top-2.5 z-0 text-[11px] font-semibold uppercase tracking-[0.3em] text-sky-300/35">
+                        {oda.bolge.ad}
+                      </span>
+
+                      {oda.bolge.masalar.map((m) =>
+                        duzenle ? (
+                          <SuruklenebilirMasa
+                            key={m.id}
+                            masa={m}
+                            now={now}
+                            vurgulu={vurgu.has(m.id)}
+                            secili={seciliMasaId === m.id}
+                            olcek={olcek}
+                            onSelect={() => setSeciliMasaId(m.id)}
+                          />
+                        ) : m.tip !== 'masa' ? (
+                          (() => {
+                            const b = masaBoyut(m);
+                            return (
+                              <div
+                                key={m.id}
+                                className="absolute"
+                                style={{ left: m.x, top: m.y, width: b.w, height: b.h }}
+                              >
+                                <SabitEleman masa={m} />
+                              </div>
+                            );
+                          })()
+                        ) : (
+                          <SalonMasa
+                            key={m.id}
+                            masa={m}
+                            now={now}
+                            vurgulu={vurgu.has(m.id)}
+                            bekleyen={bekleyenId === m.id}
+                            hedef={
+                              hedefMod?.tip === 'tasi'
+                                ? m.durum === 'bos' && m.id !== hedefMod.src.id
+                                : hedefMod?.tip === 'birlestir'
+                                  ? !!m.adisyon && m.id !== hedefMod.src.id
+                                  : false
+                            }
+                            olcek={olcek}
+                            onAc={acMasa}
+                            onMenu={masaMenu}
+                          />
+                        )
+                      )}
+                    </div>
                   ))}
                 </DndContext>
-              ) : (
-                <DndContext
-                  id="salon"
-                  sensors={sensors}
-                  collisionDetection={pointerWithin}
-                  onDragStart={onSalonStart}
-                  onDragEnd={onSalonEnd}
-                >
-                  {masalar.map((m) => {
-                    if (m.tip !== 'masa') {
-                      const b = masaBoyut(m);
-                      return (
-                        <div
-                          key={m.id}
-                          className="absolute"
-                          style={{ left: m.x, top: m.y, width: b.w, height: b.h }}
-                        >
-                          <SabitEleman masa={m} />
-                        </div>
-                      );
-                    }
-                    return (
-                      <SalonMasa
-                        key={m.id}
-                        masa={m}
-                        now={now}
-                        vurgulu={vurgu.has(m.id)}
-                        bekleyen={bekleyenId === m.id}
-                        hedef={hedefMod?.tip === 'tasi'
-                          ? m.durum === 'bos' && m.id !== hedefMod.src.id
-                          : hedefMod?.tip === 'birlestir'
-                            ? !!m.adisyon && m.id !== hedefMod.src.id
-                            : false}
-                        olcek={olcek}
-                        onAc={acMasa}
-                        onMenu={masaMenu}
-                      />
-                    );
-                  })}
-                </DndContext>
-              )}
               </div>
             </div>
           </div>
@@ -717,11 +889,18 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
                     const aktif =
                       s.key === 'dikdortgen'
                         ? seciliBilgi.dikdortgen
-                        : seciliMasa.sekil === s.key;
+                        : s.key === 'yuvarlak'
+                          ? seciliBilgi.yuvarlak
+                          : !seciliBilgi.dikdortgen && !seciliBilgi.yuvarlak;
                     return (
                       <button
                         key={s.key}
-                        onClick={() => guncelleMasa(seciliMasa.id, { sekil: s.key })}
+                        onClick={() =>
+                          guncelleMasa(seciliMasa.id, {
+                            // Şekil değişirken mevcut yönü koru (dikeyse '-d').
+                            sekil: seciliBilgi.dikey ? `${s.key}-d` : s.key,
+                          })
+                        }
                         className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
                           aktif
                             ? 'bg-sky-400 text-slate-900'
@@ -735,39 +914,37 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
                 </div>
               )}
 
-              {/* Döndür + Genişlet: masa için sadece dikdörtgende, eleman için her zaman */}
+              {/* Döndür: her masa şekli + sabit eleman için yön çevirir
+                  (sandalyeler üst/alt ↔ sol/sağ). */}
+              <button
+                onClick={() =>
+                  guncelleMasa(seciliEleman.id, {
+                    sekil: yonCevir(seciliEleman.sekil),
+                  })
+                }
+                className={`rounded-lg px-2.5 py-1.5 text-xs font-medium ${
+                  sekilBilgi(seciliEleman.sekil).dikey
+                    ? 'bg-sky-400 text-slate-900'
+                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                }`}
+              >
+                ⟳ Döndür
+              </button>
+
+              {/* Genişlet: yalnız dikdörtgen masa + sabit elemanlarda anlamlı */}
               {(seciliEleman.tip !== 'masa' || seciliBilgi.dikdortgen) && (
-                <>
-                  <button
-                    onClick={() =>
-                      guncelleMasa(seciliEleman.id, {
-                        sekil:
-                          seciliEleman.sekil === 'dikdortgen-d'
-                            ? 'dikdortgen'
-                            : 'dikdortgen-d',
-                      })
-                    }
-                    className={`rounded-lg px-2.5 py-1.5 text-xs font-medium ${
-                      seciliEleman.sekil === 'dikdortgen-d'
-                        ? 'bg-sky-400 text-slate-900'
-                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    ⟳ Döndür
-                  </button>
-                  <button
-                    onClick={() =>
-                      guncelleMasa(seciliEleman.id, { en: seciliEleman.en >= 2 ? 1 : 2 })
-                    }
-                    className={`rounded-lg px-2.5 py-1.5 text-xs font-medium ${
-                      seciliEleman.en >= 2
-                        ? 'bg-amber-400 text-slate-900'
-                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    ↔ Geniş
-                  </button>
-                </>
+                <button
+                  onClick={() =>
+                    guncelleMasa(seciliEleman.id, { en: seciliEleman.en >= 2 ? 1 : 2 })
+                  }
+                  className={`rounded-lg px-2.5 py-1.5 text-xs font-medium ${
+                    seciliEleman.en >= 2
+                      ? 'bg-amber-400 text-slate-900'
+                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                  }`}
+                >
+                  ↔ Geniş
+                </button>
               )}
 
               {/* Kapasite — yalnız masa */}

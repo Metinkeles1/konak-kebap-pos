@@ -10,12 +10,8 @@ const UZUN_DK = 120; // 2 saatten uzun açık masa = uyarı
 // Sandalye konumları (footprint kenarındaki paya yerleşir). color: currentColor.
 // Sandalye SAYISI = kapasite; iki ana kenara bölünür (üst/alt veya sol/sağ),
 // yan kenarlar boş kalır. Örn. 4 kişilik = 2 üst + 2 alt. Tek sayıda üst kenara
-// bir fazla düşer. dikdörtgen+dikey ise ana kenarlar sol/sağ olur.
-function sandalyeler(
-  dikdortgen: boolean,
-  dikey: boolean,
-  kapasite: number
-): CSSProperties[] {
+// bir fazla düşer. Dikey (döndürülmüş) ise ana kenarlar sol/sağ olur.
+function sandalyeler(dikey: boolean, kapasite: number): CSSProperties[] {
   const bar = (s: CSSProperties): CSSProperties => ({
     position: 'absolute',
     background: 'currentColor',
@@ -34,8 +30,8 @@ function sandalyeler(
   const dagit = (n: number) =>
     Array.from({ length: n }, (_, i) => ((i + 1) / (n + 1)) * 100);
 
-  // dikdörtgen + dikey: ana kenarlar sol/sağ; diğer tüm hallerde üst/alt
-  if (dikdortgen && dikey) {
+  // dikey (döndürülmüş): ana kenarlar sol/sağ; yatay halde üst/alt
+  if (dikey) {
     return [
       ...dagit(aN).map((p) => yan(p, false)),
       ...dagit(bN).map((p) => yan(p, true)),
@@ -63,7 +59,7 @@ export const MasaKart = memo(function MasaKart({
   const a = masa.adisyon;
   const kismi = a?.kismiOdeme ?? false;
   const uzun = a ? gecenDakika(a.acilis, now) >= UZUN_DK : false;
-  const { dikdortgen, dikey, yuvarlak } = sekilBilgi(masa.sekil);
+  const { dikey, yuvarlak } = sekilBilgi(masa.sekil);
 
   // Durum dili — serin/hayalet (boş) → sıcak amber (dolu)
   let durum =
@@ -85,7 +81,7 @@ export const MasaKart = memo(function MasaKart({
         className="pointer-events-none absolute inset-0"
         style={{ color: a ? 'rgba(217,119,6,0.6)' : 'rgba(100,116,139,0.55)' }}
       >
-        {sandalyeler(dikdortgen, dikey, masa.kapasite).map((st, i) => (
+        {sandalyeler(dikey, masa.kapasite).map((st, i) => (
           <span key={i} style={st} />
         ))}
       </div>

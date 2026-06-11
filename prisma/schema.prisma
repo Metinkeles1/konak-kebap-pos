@@ -15,6 +15,17 @@ model Bolge {
   id      Int    @id @default(autoincrement())
   ad      String
   sira    Int
+
+  // --- Kat / tek-ekran yerleşimi ---
+  // Aynı `kat` değerine sahip bölgeler salon ekranında TEK krokide, yan yana
+  // "oda"lar olarak çizilir (üst sekmeler kat bazlı). Oda çerçevesinin kat
+  // krokisindeki konumu odaX/odaY; ölçüsü odaW/odaH (0 = masalardan otomatik).
+  kat  String @default("Alt Kat")
+  odaX Int    @default(0)
+  odaY Int    @default(0)
+  odaW Int    @default(0)
+  odaH Int    @default(0)
+
   masalar Masa[]
 }
 
