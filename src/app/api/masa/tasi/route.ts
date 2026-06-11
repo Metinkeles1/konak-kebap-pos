@@ -28,7 +28,10 @@ export async function POST(req: Request) {
       where: { id: adisyonId },
       data: { masaId: hedefMasaId },
     });
-    await tx.masa.update({ where: { id: eskiMasaId }, data: { durum: 'bos' } });
+    // Kaynak gel-al ise (masaId null) boşaltılacak eski masa yok.
+    if (eskiMasaId != null) {
+      await tx.masa.update({ where: { id: eskiMasaId }, data: { durum: 'bos' } });
+    }
     await tx.masa.update({ where: { id: hedefMasaId }, data: { durum: 'dolu' } });
     return { eskiMasaId, hedefMasaId };
   });

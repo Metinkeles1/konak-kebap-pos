@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { toplamYenidenHesapla } from '@/lib/hesap';
 import { tetikle } from '@/lib/pusher-server';
 import { SALON_KANAL, OLAY_MASA } from '@/lib/realtime';
 
@@ -77,12 +78,9 @@ export async function POST(req: Request) {
       kalemId = y.id;
     }
 
-    const kalemler = await tx.adisyonKalem.findMany({ where: { adisyonId } });
-    const toplam = kalemler.reduce(
-      (s, k) => s + Number(k.birimFiyat) * k.adet,
-      0
-    );
-    await tx.adisyon.update({ where: { id: adisyonId }, data: { toplam } });
+    // toplam + etkin indirim ₺'yi birlikte yeniden hesapla (yüzde indirimli
+    // masada ürün eklenince indirim de kaymalı — diğer route'larla aynı yol).
+    await toplamYenidenHesapla(tx, adisyonId);
     return { masaId: adisyon.masaId, kalemId };
   });
 

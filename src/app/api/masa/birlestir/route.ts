@@ -28,6 +28,7 @@ export async function POST(req: Request) {
     });
     if (!kaynak || kaynak.durum !== 'acik') throw new Error('Kaynak adisyon yok');
     if (!hedef || hedef.durum !== 'acik') throw new Error('Hedef adisyon yok');
+    if (!kaynak.masa) throw new Error('Gel-al adisyonu birleştirilemez');
 
     await tx.adisyonKalem.updateMany({
       where: { adisyonId: kaynakAdisyonId },

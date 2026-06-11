@@ -1,6 +1,6 @@
 'use client';
 
-import type { CSSProperties } from 'react';
+import { memo, type CSSProperties } from 'react';
 import type { MasaOzet } from '@/lib/types';
 import { CHAIR, sekilBilgi } from '@/lib/kroki';
 import { gecenDakika, gecenSure, para } from '@/lib/format';
@@ -47,7 +47,7 @@ function sandalyeler(
   ];
 }
 
-export function MasaKart({
+export const MasaKart = memo(function MasaKart({
   masa,
   now,
   vurgulu,
@@ -137,4 +137,4 @@ export function MasaKart({
       </div>
     </div>
   );
-}
+});

@@ -40,8 +40,20 @@ export type BolgeOzet = {
   masalar: MasaOzet[];
 };
 
+// Gel-al (paket) adisyonu — masaya bağlı değil; salonda ayrı sekmede listelenir.
+export type GelalOzet = {
+  id: number; // adisyonId
+  etiket: string; // "Paket 3"
+  acilis: string; // ISO
+  toplam: number;
+  kalan: number;
+  kalemSayisi: number;
+  kismiOdeme: boolean;
+};
+
 export type SalonOzet = {
   bolgeler: BolgeOzet[];
+  gelaller: GelalOzet[];
   ozet: {
     bos: number;
     dolu: number;

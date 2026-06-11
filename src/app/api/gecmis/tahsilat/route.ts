@@ -63,10 +63,13 @@ export async function POST(req: Request) {
           where: { id: t.adisyonId },
           data: { durum: 'acik', kapanis: null },
         });
-        await tx.masa.update({
-          where: { id: masaId },
-          data: { durum: 'dolu' },
-        });
+        // Gel-al adisyonunda masa yok (masaId null) — doldurulacak masa da yok.
+        if (masaId != null) {
+          await tx.masa.update({
+            where: { id: masaId },
+            data: { durum: 'dolu' },
+          });
+        }
         yenidenAcildi = true;
       }
       return { masaId, yenidenAcildi };

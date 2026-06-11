@@ -1,5 +1,15 @@
+import { Prisma } from '@prisma/client';
 import { db } from './db';
 import { kalanHesapla } from './hesap';
+
+// Adisyon detayını kurmak için gereken ortak include (hem masa hem gel-al loader).
+const adisyonInclude = {
+  kalemler: { orderBy: { id: 'asc' } },
+  tahsilatlar: true,
+  iptaller: { orderBy: { id: 'asc' } },
+} satisfies Prisma.AdisyonInclude;
+
+type AdisyonKayit = Prisma.AdisyonGetPayload<{ include: typeof adisyonInclude }>;
 
 export type KalemDetay = {
   id: number;
@@ -31,8 +41,9 @@ export type HedefMasa = {
 };
 
 export type AdisyonDetay = {
-  masaId: number;
-  masaAd: string;
+  masaId: number | null; // gel-al'da null
+  masaAd: string; // masa adı veya gel-al etiketi ("Paket 3")
+  tip: 'masa' | 'gelal';
   adisyonId: number | null; // null = henüz açık adisyon yok
   acilis: string | null;
   kalemler: KalemDetay[];
@@ -48,34 +59,9 @@ export type AdisyonDetay = {
   hedefMasalar: HedefMasa[]; // bu masa hariç tüm masalar (taşıma/birleştirme)
 };
 
-// Masaya ait AÇIK adisyonu + kalemleri + diğer masaları getirir (salt-okunur).
-export async function getAdisyonDetay(masaId: number): Promise<AdisyonDetay | null> {
-  const [masa, digerMasalar] = await Promise.all([
-    db.masa.findUnique({
-      where: { id: masaId },
-      include: {
-        adisyonlar: {
-          where: { durum: 'acik' },
-          include: {
-            kalemler: { orderBy: { id: 'asc' } },
-            tahsilatlar: true,
-            iptaller: { orderBy: { id: 'asc' } },
-          },
-        },
-      },
-    }),
-    db.masa.findMany({
-      where: { id: { not: masaId }, tip: 'masa' }, // kasa/mobilya taşıma hedefi olamaz
-      orderBy: [{ bolge: { sira: 'asc' } }, { id: 'asc' }],
-      include: {
-        bolge: { select: { ad: true } },
-        adisyonlar: { where: { durum: 'acik' }, select: { id: true } },
-      },
-    }),
-  ]);
-  if (!masa) return null;
-
-  const a = masa.adisyonlar[0] ?? null;
+// Yüklenmiş bir adisyon kaydından (veya null) hesap/kalem/iptal alanlarını çıkarır.
+// masaId/masaAd/tip/hedefMasalar çağıran tarafça eklenir (masa vs gel-al farkı).
+function ortakDetay(a: AdisyonKayit | null) {
   const kalemler: KalemDetay[] = a
     ? a.kalemler.map((k) => ({
         id: k.id,
@@ -117,6 +103,42 @@ export async function getAdisyonDetay(masaId: number): Promise<AdisyonDetay | nu
       }))
     : [];
 
+  return {
+    adisyonId: a?.id ?? null,
+    acilis: a?.acilis.toISOString() ?? null,
+    kalemler,
+    toplam,
+    indirim,
+    indirimTip: a?.indirimTip ?? null,
+    indirimDeger: a ? Number(a.indirimDeger) : 0,
+    kalan,
+    odenenTutar,
+    tahsilatToplam,
+    kismiOdeme,
+    iptaller,
+  };
+}
+
+// Masaya ait AÇIK adisyonu + kalemleri + diğer masaları getirir (salt-okunur).
+export async function getAdisyonDetay(masaId: number): Promise<AdisyonDetay | null> {
+  const [masa, digerMasalar] = await Promise.all([
+    db.masa.findUnique({
+      where: { id: masaId },
+      include: {
+        adisyonlar: { where: { durum: 'acik' }, include: adisyonInclude },
+      },
+    }),
+    db.masa.findMany({
+      where: { id: { not: masaId }, tip: 'masa' }, // kasa/mobilya taşıma hedefi olamaz
+      orderBy: [{ bolge: { sira: 'asc' } }, { id: 'asc' }],
+      include: {
+        bolge: { select: { ad: true } },
+        adisyonlar: { where: { durum: 'acik' }, select: { id: true } },
+      },
+    }),
+  ]);
+  if (!masa) return null;
+
   const hedefMasalar: HedefMasa[] = digerMasalar.map((m) => {
     const acik = m.adisyonlar[0] ?? null;
     return {
@@ -131,18 +153,25 @@ export async function getAdisyonDetay(masaId: number): Promise<AdisyonDetay | nu
   return {
     masaId: masa.id,
     masaAd: masa.ad,
-    adisyonId: a?.id ?? null,
-    acilis: a?.acilis.toISOString() ?? null,
-    kalemler,
-    toplam,
-    indirim,
-    indirimTip: a?.indirimTip ?? null,
-    indirimDeger: a ? Number(a.indirimDeger) : 0,
-    kalan,
-    odenenTutar,
-    tahsilatToplam,
-    kismiOdeme,
-    iptaller,
+    tip: 'masa',
+    ...ortakDetay(masa.adisyonlar[0] ?? null),
     hedefMasalar,
+  };
+}
+
+// Gel-al (paket) adisyonunu id ile getirir — masa yok, etiket başlık olur.
+export async function getAdisyonById(adisyonId: number): Promise<AdisyonDetay | null> {
+  const a = await db.adisyon.findUnique({
+    where: { id: adisyonId },
+    include: adisyonInclude,
+  });
+  if (!a || a.tip !== 'gelal') return null;
+
+  return {
+    masaId: null,
+    masaAd: a.etiket ?? 'Gel-Al',
+    tip: 'gelal',
+    ...ortakDetay(a),
+    hedefMasalar: [], // gel-al'da masa taşı/birleştir yok
   };
 }

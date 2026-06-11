@@ -9,8 +9,10 @@ const db = new PrismaClient();
 
 async function main() {
   // FK sırası: önce yaprak tablolar, sonra Adisyon.
+  // (Iptal de Adisyon'a FK'lı — silinmezse adisyon.deleteMany FK ihlaliyle patlar.)
   const tahsilat = await db.tahsilat.deleteMany();
   const kalem = await db.adisyonKalem.deleteMany();
+  const iptal = await db.iptal.deleteMany();
   const adisyon = await db.adisyon.deleteMany();
 
   // Açık kalmış masaları boşalt (kasa/mobilya zaten dolu olmaz ama dert değil).
@@ -22,6 +24,7 @@ async function main() {
   console.log('✔ İşlem verisi sıfırlandı:');
   console.log(`  • Tahsilat:      ${tahsilat.count} silindi`);
   console.log(`  • AdisyonKalem:  ${kalem.count} silindi`);
+  console.log(`  • Iptal:         ${iptal.count} silindi`);
   console.log(`  • Adisyon:       ${adisyon.count} silindi`);
   console.log(`  • Masa:          ${masa.count} masa "boş"a döndürüldü`);
 

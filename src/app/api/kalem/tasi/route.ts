@@ -56,16 +56,19 @@ export async function POST(req: Request) {
         select: { masaId: true },
       });
       if (kadisyon) {
-        etkilenenMasalar.add(kadisyon.masaId);
+        if (kadisyon.masaId != null) etkilenenMasalar.add(kadisyon.masaId);
         if (kalanKalem === 0) {
           await tx.adisyon.update({
             where: { id: kid },
             data: { durum: 'kapali', kapanis: new Date() },
           });
-          await tx.masa.update({
-            where: { id: kadisyon.masaId },
-            data: { durum: 'bos' },
-          });
+          // Gel-al kaynak adisyonunda (masaId null) boşaltılacak masa yok.
+          if (kadisyon.masaId != null) {
+            await tx.masa.update({
+              where: { id: kadisyon.masaId },
+              data: { durum: 'bos' },
+            });
+          }
         }
       }
     }

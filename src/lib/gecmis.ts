@@ -127,7 +127,7 @@ export async function getMasaGecmisi(tarihStr?: string): Promise<MasaGecmisi> {
     const odenen = tahsilatlar.reduce((s, t) => s + t.tutar, 0);
     return {
       id: a.id,
-      masaAd: a.masa.ad,
+      masaAd: a.masa?.ad ?? a.etiket ?? 'Gel-Al', // gel-al'da masa yok → etiket
       acilis: a.acilis.toISOString(),
       kapanis: a.kapanis ? a.kapanis.toISOString() : null,
       durum: a.durum,

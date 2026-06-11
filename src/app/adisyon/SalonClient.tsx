@@ -21,11 +21,11 @@ import {
   type DragEndEvent,
   type DragMoveEvent,
 } from '@dnd-kit/core';
-import type { MasaOzet, MasaTip, SalonOzet } from '@/lib/types';
+import type { GelalOzet, MasaOzet, MasaTip, SalonOzet } from '@/lib/types';
 import { MasaKart } from '@/components/MasaKart';
 import { SabitEleman } from '@/components/SabitEleman';
 import { HIZA_ESIK, hizalaMerkez, masaBoyut, sekilBilgi } from '@/lib/kroki';
-import { para } from '@/lib/format';
+import { gecenSure, para } from '@/lib/format';
 import { useNow } from '@/lib/useNow';
 import {
   OLAY_ADISYON_KAPANDI,
@@ -63,6 +63,8 @@ const EKLENEBILIR: { tip: MasaTip; label: string }[] = [
 export function SalonClient({ initial }: { initial: SalonOzet }) {
   const [data, setData] = useState<SalonOzet>(initial);
   const [aktifId, setAktifId] = useState<number>(initial.bolgeler[0]?.id ?? 0);
+  const [gelalModu, setGelalModu] = useState(false); // Gel-Al sekmesi aktif mi
+  const [gelalBekleyen, setGelalBekleyen] = useState(false); // "Yeni Gel-Al" oluşturuluyor
   const [duzenle, setDuzenle] = useState(false);
   const [vurgu, setVurgu] = useState<Set<number>>(new Set());
   const [bekleyenId, setBekleyenId] = useState<number | null>(null);
@@ -89,6 +91,22 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
       /* sessiz geç */
     }
   }, []);
+
+  // Yeni gel-al (paket) adisyonu aç → doğrudan sipariş ekranına geç.
+  const yeniGelal = useCallback(async () => {
+    if (gelalBekleyen) return;
+    setGelalBekleyen(true);
+    try {
+      const res = await fetch('/api/adisyon/gelal', { method: 'POST' });
+      if (!res.ok) return;
+      const { adisyonId } = await res.json();
+      router.push(`/adisyon/gelal/${adisyonId}`);
+    } catch {
+      /* yut */
+    } finally {
+      setGelalBekleyen(false);
+    }
+  }, [router, gelalBekleyen]);
 
   // Anlık senkron (Pusher kuruluysa)
   useEffect(() => {
@@ -360,36 +378,41 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* Üst bar */}
-      <header className="flex items-center justify-between gap-3 border-b border-slate-800 bg-slate-900/60 px-4 py-3 backdrop-blur">
-        <div className="flex items-baseline gap-2">
-          <span className="text-lg font-black tracking-tight text-amber-400">
+      {/* Üst bar — mobil (garson) sade; md+ (kasa/tablet) tüm yönetim aksiyonları */}
+      <header className="flex items-center justify-between gap-3 border-b border-slate-800 bg-slate-900/60 px-3 py-2.5 backdrop-blur sm:px-4 sm:py-3">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <span className="truncate text-base font-black tracking-tight text-amber-400 sm:text-lg">
             KONAK KEBAP
           </span>
-          <span className="text-sm font-medium text-slate-400">· Salon</span>
+          <span className="hidden text-sm font-medium text-slate-400 sm:inline">
+            · Salon
+          </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
+          {/* Geçmiş / Gün Sonu / Krokiyi Düzenle: yönetim — yalnız md+ (kasa) */}
           <Link
             href="/adisyon/gecmis"
-            className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
+            className="hidden rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800 md:inline-flex"
           >
             🧾 Geçmiş
           </Link>
           <Link
             href="/adisyon/rapor"
-            className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
+            className="hidden rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800 md:inline-flex"
           >
             📊 Gün Sonu
           </Link>
           <button
             onClick={refetch}
+            aria-label="Yenile"
             className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
           >
-            Yenile
+            <span className="md:hidden">⟳</span>
+            <span className="hidden md:inline">Yenile</span>
           </button>
           <button
             onClick={toggleDuzenle}
-            className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+            className={`hidden rounded-lg px-3 py-1.5 text-sm font-medium transition-colors md:inline-flex ${
               duzenle
                 ? 'bg-sky-400 text-slate-900'
                 : 'border border-slate-700 text-slate-300 hover:bg-slate-800'
@@ -400,13 +423,22 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
         </div>
       </header>
 
-      {/* Özet bandı */}
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b border-slate-800 bg-slate-900/30 px-4 py-2 text-sm">
-        <span className="text-emerald-400">🟢 Boş {o.bos}</span>
-        <span className="text-rose-300">🔴 Dolu {o.dolu}</span>
-        <span className="text-amber-300">⏳ Ödeme bekleyen {o.odemeBekleyen}</span>
+      {/* Özet bandı — mobilde sadece operasyonel sayım (garson); para/yönetim md+ */}
+      <div className="no-scrollbar flex items-center gap-x-4 gap-y-1 overflow-x-auto border-b border-slate-800 bg-slate-900/30 px-3 py-2 text-sm md:flex-wrap md:gap-x-5 md:px-4">
+        <span className="shrink-0 whitespace-nowrap text-emerald-400">
+          🟢 Boş {o.bos}
+        </span>
+        <span className="shrink-0 whitespace-nowrap text-rose-300">
+          🔴 Dolu {o.dolu}
+        </span>
+        <span className="shrink-0 whitespace-nowrap text-amber-300">
+          ⏳ Ödeme bekleyen {o.odemeBekleyen}
+        </span>
         {(o.gunIptal > 0 || o.gunIkram > 0 || o.gunIndirim > 0) && (
-          <span className="text-slate-500" title="Bugün: iptal · ikram · indirim">
+          <span
+            className="hidden shrink-0 whitespace-nowrap text-slate-500 md:inline"
+            title="Bugün: iptal · ikram · indirim"
+          >
             İptal <b className="tabular-nums text-rose-300/90">{para(o.gunIptal)}</b>
             {' · '}İkram{' '}
             <b className="tabular-nums text-emerald-300/80">{para(o.gunIkram)}</b>
@@ -414,27 +446,28 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
             <b className="tabular-nums text-rose-300/90">{para(o.gunIndirim)}</b>
           </span>
         )}
-        <span className="ml-auto text-slate-400">
+        <span className="hidden shrink-0 whitespace-nowrap text-slate-400 md:ml-auto md:inline">
           Açık hesap:{' '}
           <b className="tabular-nums text-slate-100">{para(o.acikHesapToplam)}</b>
         </span>
-        <span className="text-slate-400">
+        <span className="hidden shrink-0 whitespace-nowrap text-slate-400 md:inline">
           Bugünkü ciro:{' '}
           <b className="tabular-nums text-emerald-300">{para(o.gunlukCiro)}</b>
         </span>
       </div>
 
-      {/* Bölge sekmeleri */}
+      {/* Bölge sekmeleri + Gel-Al sekmesi */}
       <div className="flex gap-1 overflow-x-auto border-b border-slate-800 px-3 py-2">
         {data.bolgeler.map((b) => (
           <button
             key={b.id}
             onClick={() => {
               setAktifId(b.id);
+              setGelalModu(false);
               setSeciliMasaId(null);
             }}
             className={`shrink-0 rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-              b.id === aktifId
+              !gelalModu && b.id === aktifId
                 ? 'bg-slate-100 text-slate-900'
                 : 'text-slate-300 hover:bg-slate-800'
             }`}
@@ -442,6 +475,29 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
             {b.ad}
           </button>
         ))}
+        {/* Gel-Al (paket) — masaya bağlı olmayan siparişler */}
+        <button
+          onClick={() => {
+            setGelalModu(true);
+            setSeciliMasaId(null);
+          }}
+          className={`ml-1 flex shrink-0 items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+            gelalModu
+              ? 'bg-amber-400 text-slate-900'
+              : 'text-amber-300 hover:bg-amber-400/10'
+          }`}
+        >
+          📦 Gel-Al
+          {data.gelaller.length > 0 && (
+            <span
+              className={`rounded-full px-1.5 text-[11px] font-bold tabular-nums ${
+                gelalModu ? 'bg-slate-900/20 text-slate-900' : 'bg-amber-400/20'
+              }`}
+            >
+              {data.gelaller.length}
+            </span>
+          )}
+        </button>
       </div>
 
       {/* Hedef seçme bandı (menüden Taşı/Birleştir) */}
@@ -462,7 +518,15 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
         </div>
       )}
 
-      {data.bolgeler.length === 0 ? (
+      {gelalModu ? (
+        <GelalPanel
+          gelaller={data.gelaller}
+          now={now}
+          bekleyen={gelalBekleyen}
+          onYeni={yeniGelal}
+          onAc={(id) => router.push(`/adisyon/gelal/${id}`)}
+        />
+      ) : data.bolgeler.length === 0 ? (
         <div className="flex flex-1 items-center justify-center p-8 text-center text-slate-400">
           Masa bulunamadı. Veritabanını hazırla:{' '}
           <code className="mx-1 rounded bg-slate-800 px-1.5 py-0.5">
@@ -472,7 +536,7 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
       ) : (
         <div className="min-h-0 flex-1">
           {/* Telefon: tek/iki kolon liste */}
-          <div className="grid grid-cols-2 gap-3 overflow-auto p-4 sm:grid-cols-3 md:hidden">
+          <div className="pb-safe grid grid-cols-2 gap-3 overflow-auto p-4 sm:grid-cols-3 md:hidden">
             {masalar.map((m) =>
               m.tip !== 'masa' ? (
                 <div key={m.id} className="h-26">
@@ -883,6 +947,77 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
               </button>
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Gel-Al sekmesi: aktif paket siparişlerini kart olarak listeler + yeni aç.
+function GelalPanel({
+  gelaller,
+  now,
+  bekleyen,
+  onYeni,
+  onAc,
+}: {
+  gelaller: GelalOzet[];
+  now: number;
+  bekleyen: boolean;
+  onYeni: () => void;
+  onAc: (id: number) => void;
+}) {
+  return (
+    <div className="pb-safe min-h-0 flex-1 overflow-auto p-4">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <span className="text-sm text-slate-400">
+          {gelaller.length > 0
+            ? `${gelaller.length} açık paket siparişi`
+            : 'Açık paket siparişi yok'}
+        </span>
+        <button
+          onClick={onYeni}
+          disabled={bekleyen}
+          className="flex items-center gap-2 rounded-xl bg-amber-400 px-4 py-2 text-sm font-bold text-slate-900 shadow-sm transition-colors hover:bg-amber-300 disabled:opacity-60"
+        >
+          ＋ Yeni Gel-Al
+        </button>
+      </div>
+
+      {gelaller.length === 0 ? (
+        <button
+          onClick={onYeni}
+          disabled={bekleyen}
+          className="flex h-40 w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-slate-700 text-slate-400 transition-colors hover:border-amber-400/50 hover:text-amber-300 disabled:opacity-60"
+        >
+          <span className="text-3xl">📦</span>
+          <span className="text-sm font-medium">İlk paket siparişini başlat</span>
+        </button>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+          {gelaller.map((g) => (
+            <button
+              key={g.id}
+              onClick={() => onAc(g.id)}
+              className="flex flex-col gap-2 rounded-2xl border border-amber-500/30 bg-linear-to-br from-amber-500/10 to-slate-900/40 p-3 text-left transition-transform hover:scale-[1.03] hover:border-amber-400/60"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-base font-bold text-amber-200">{g.etiket}</span>
+                {g.kismiOdeme && (
+                  <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300">
+                    Kısmi
+                  </span>
+                )}
+              </div>
+              <div className="text-2xl font-extrabold tabular-nums text-emerald-300">
+                {para(g.kalan)}
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-slate-400">
+                <span>{g.kalemSayisi} ürün</span>
+                <span>{gecenSure(g.acilis, now)}</span>
+              </div>
+            </button>
+          ))}
         </div>
       )}
     </div>

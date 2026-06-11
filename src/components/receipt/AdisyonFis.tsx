@@ -187,7 +187,9 @@ export function AdisyonFis({ detay }: { detay: AdisyonDetay }) {
               marginBottom: '2px',
             }}
           >
-            <span style={{ fontWeight: 700 }}>Masa: {detay.masaAd}</span>
+            <span style={{ fontWeight: 700 }}>
+              {detay.tip === 'gelal' ? 'Gel-Al' : 'Masa'}: {detay.masaAd}
+            </span>
             <span style={{ whiteSpace: 'nowrap' }}>
               {tarih} {saat}
             </span>

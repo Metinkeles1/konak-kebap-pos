@@ -1,6 +1,6 @@
 'use client';
 
-import type { CSSProperties } from 'react';
+import { memo, type CSSProperties } from 'react';
 import type { MasaOzet } from '@/lib/types';
 
 // Krokideki sabit (tıklanamaz) elemanlar: tezgah/kasa, ocak, merdiven, kapı,
@@ -11,7 +11,7 @@ import type { MasaOzet } from '@/lib/types';
 const HATCH = (renk: string): string =>
   `repeating-linear-gradient(45deg, ${renk} 0, ${renk} 1px, transparent 1px, transparent 7px)`;
 
-export function SabitEleman({ masa }: { masa: MasaOzet }) {
+export const SabitEleman = memo(function SabitEleman({ masa }: { masa: MasaOzet }) {
   const dikey = masa.sekil === 'dikdortgen-d';
   const ad = masa.ad;
 
@@ -131,4 +131,4 @@ export function SabitEleman({ masa }: { masa: MasaOzet }) {
         </Kutu>
       );
   }
-}
+});

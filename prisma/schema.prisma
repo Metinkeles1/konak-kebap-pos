@@ -40,8 +40,11 @@ model Masa {
 
 model Adisyon {
   id          Int            @id @default(autoincrement())
-  masa        Masa           @relation(fields: [masaId], references: [id])
-  masaId      Int
+  // masaId null = gel-al/paket (masaya bağlı değil). tip ile ayrılır.
+  masa        Masa?          @relation(fields: [masaId], references: [id])
+  masaId      Int?
+  tip         String         @default("masa") // "masa" | "gelal"
+  etiket      String? // gel-al sipariş etiketi (örn. "Paket 3"); masa adisyonunda null
   acilis      DateTime       @default(now())
   kapanis     DateTime?
   durum       String         @default("acik") // "acik" | "kapali"
@@ -59,11 +62,12 @@ model Adisyon {
 
   @@index([masaId])
   @@index([durum])
+  @@index([tip, durum]) // salon: açık gel-al adisyonlarını çek
 }
 
 model AdisyonKalem {
   id         Int      @id @default(autoincrement())
-  adisyon    Adisyon  @relation(fields: [adisyonId], references: [id])
+  adisyon    Adisyon  @relation(fields: [adisyonId], references: [id], onDelete: Cascade)
   adisyonId  Int
   urunId     String // paket sistemdeki ürün id (örn. "k1")
   urunAd     String // anlık kopya — menü değişse de geçmiş bozulmaz
@@ -78,7 +82,8 @@ model AdisyonKalem {
 
   // Kalem bazlı tahsilatta bu kalemi hangi ödeme kapadı — tahsilat geri
   // alınınca kalemi tekrar "acik" yapabilmek için (gün sonu/geçmiş düzenleme).
-  tahsilat   Tahsilat? @relation(fields: [tahsilatId], references: [id])
+  // SetNull: tahsilat silinirse kalem silinmez, sadece bağı kopar (kalem geri açılır).
+  tahsilat   Tahsilat? @relation(fields: [tahsilatId], references: [id], onDelete: SetNull)
   tahsilatId Int?
 
   @@index([adisyonId])
@@ -87,7 +92,7 @@ model AdisyonKalem {
 
 model Tahsilat {
   id        Int      @id @default(autoincrement())
-  adisyon   Adisyon  @relation(fields: [adisyonId], references: [id])
+  adisyon   Adisyon  @relation(fields: [adisyonId], references: [id], onDelete: Cascade)
   adisyonId Int
   tutar     Decimal
   yontem    String // bölme yöntemi: "kalem" | "esit" | "serbest" | "tam"
@@ -105,7 +110,7 @@ model Tahsilat {
 // Ana toplam/KALAN hesabına girmez; sadece kayıt amaçlı.
 model Iptal {
   id        Int      @id @default(autoincrement())
-  adisyon   Adisyon  @relation(fields: [adisyonId], references: [id])
+  adisyon   Adisyon  @relation(fields: [adisyonId], references: [id], onDelete: Cascade)
   adisyonId Int
   urunAd    String // iptal anındaki ürün adı (kopya)
   adet      Int

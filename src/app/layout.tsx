@@ -27,7 +27,8 @@ export const viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
-  themeColor: "#1a1a1a",
+  themeColor: "#0b0f17",
+  viewportFit: "cover" as const, // çentik/home-indicator: safe-area kullanılabilsin
 };
 
 export default function RootLayout({

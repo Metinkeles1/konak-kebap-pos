@@ -711,14 +711,17 @@ export function AdisyonClient({
             >
               Öde
             </button>
-            <button
-              onClick={() => setModal('kalemTasi')}
-              disabled={islem}
-              className="flex items-center gap-1.5 rounded-lg border border-slate-600 px-3 py-1.5 text-slate-200 transition-colors hover:bg-slate-700 disabled:opacity-50"
-            >
-              <Ikon ad="tasi" className="h-4 w-4" />
-              Taşı
-            </button>
+            {/* Kalem taşıma masa hedefi gerektirir — gel-al'da yok */}
+            {detay.tip !== 'gelal' && (
+              <button
+                onClick={() => setModal('kalemTasi')}
+                disabled={islem}
+                className="flex items-center gap-1.5 rounded-lg border border-slate-600 px-3 py-1.5 text-slate-200 transition-colors hover:bg-slate-700 disabled:opacity-50"
+              >
+                <Ikon ad="tasi" className="h-4 w-4" />
+                Taşı
+              </button>
+            )}
           </div>
         )}
 
@@ -827,7 +830,12 @@ export function AdisyonClient({
                   <Ikon ad="kapat" className="h-4.5 w-4.5" />
                   Hesabı Kapat
                 </button>
-                <div className="grid grid-cols-2 gap-2">
+                {/* Gel-al'da masa taşı/birleştir yok → Böl tek başına tam genişlik */}
+                <div
+                  className={`grid gap-2 ${
+                    detay.tip === 'gelal' ? 'grid-cols-1' : 'grid-cols-2'
+                  }`}
+                >
                   <button
                     onClick={() => {
                       setHata(null);
@@ -839,17 +847,19 @@ export function AdisyonClient({
                     <Ikon ad="bol" className="h-4.5 w-4.5" />
                     Böl
                   </button>
-                  <button
-                    onClick={() => {
-                      setHata(null);
-                      setModal('masa');
-                    }}
-                    disabled={islem}
-                    className="flex items-center justify-center gap-2 rounded-xl border border-slate-700 py-2.5 text-sm font-medium text-slate-200 transition-colors hover:border-slate-500 hover:bg-slate-800 disabled:opacity-50"
-                  >
-                    <Ikon ad="masa" className="h-4.5 w-4.5" />
-                    Masa
-                  </button>
+                  {detay.tip !== 'gelal' && (
+                    <button
+                      onClick={() => {
+                        setHata(null);
+                        setModal('masa');
+                      }}
+                      disabled={islem}
+                      className="flex items-center justify-center gap-2 rounded-xl border border-slate-700 py-2.5 text-sm font-medium text-slate-200 transition-colors hover:border-slate-500 hover:bg-slate-800 disabled:opacity-50"
+                    >
+                      <Ikon ad="masa" className="h-4.5 w-4.5" />
+                      Masa
+                    </button>
+                  )}
                 </div>
               </div>
             </>

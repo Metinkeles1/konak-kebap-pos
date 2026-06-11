@@ -85,14 +85,17 @@ export async function toplamYenidenHesapla(
 export async function kapatKontrol(
   tx: Prisma.TransactionClient,
   adisyonId: number
-): Promise<{ kapandi: boolean; masaId: number; kalan: number }> {
+): Promise<{ kapandi: boolean; masaId: number | null; kalan: number }> {
   const { kalan, masaId } = await hesapla(tx, adisyonId);
   if (kalan <= 0.001) {
     await tx.adisyon.update({
       where: { id: adisyonId },
       data: { durum: 'kapali', kapanis: new Date() },
     });
-    await tx.masa.update({ where: { id: masaId }, data: { durum: 'bos' } });
+    // Gel-al adisyonunda masa yok (masaId null) — boşaltılacak masa da yok.
+    if (masaId != null) {
+      await tx.masa.update({ where: { id: masaId }, data: { durum: 'bos' } });
+    }
     return { kapandi: true, masaId, kalan: 0 };
   }
   return { kapandi: false, masaId, kalan };
