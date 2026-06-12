@@ -1,6 +1,9 @@
 'use client';
 
 import {
+  memo,
+  useCallback,
+  useEffect,
   useMemo,
   useOptimistic,
   useRef,
@@ -17,6 +20,8 @@ import type {
   KalemDetay,
 } from '@/lib/adisyon';
 import type { Urun, UrunGrubu } from '@/lib/menu';
+import type { AdisyonOzet } from '@/lib/types';
+import { snapshotMasaGuncelle } from '@/lib/salon-snapshot';
 import { gecenSure, para } from '@/lib/format';
 import { ODEME_ARACLARI, type OdemeArac } from '@/lib/odeme';
 import { useNow } from '@/lib/useNow';
@@ -62,6 +67,66 @@ const NOT_SECENEK = [
   'Servis sonra',
 ];
 
+// Ürün ızgarası: sepet/hesap state'i değişince GEREKSİZ yere render olmasın diye
+// memoize. onEkle stabil (useCallback) ve urunler referansı sabit olduğundan
+// dokunuşta tüm kartlar yeniden render edilmez → optimistik güncelleme anında boyanır.
+const UrunIzgara = memo(function UrunIzgara({
+  urunler,
+  onEkle,
+}: {
+  urunler: Urun[];
+  onEkle: (u: Urun) => void;
+}) {
+  return (
+    <div className="grid grid-cols-3 content-start gap-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+      {urunler.map((u) => (
+        <button
+          key={u.id}
+          onClick={() => onEkle(u)}
+          disabled={!u.available}
+          className={`group overflow-hidden rounded-xl border border-slate-800 bg-slate-900/50 text-left transition-transform active:scale-[0.97] ${
+            u.available ? 'hover:border-slate-600' : 'opacity-50'
+          }`}
+        >
+          <div className="relative aspect-4/3 bg-slate-800">
+            {u.image ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={u.image}
+                alt={u.name}
+                loading="lazy"
+                className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center text-2xl opacity-40">
+                🍽️
+              </div>
+            )}
+            {u.available && u.portionable && (
+              <span className="absolute right-1.5 top-1.5 rounded bg-slate-900/80 px-1.5 py-0.5 text-[10px] font-bold text-amber-300 backdrop-blur">
+                ½
+              </span>
+            )}
+            {!u.available && (
+              <span className="absolute left-1.5 top-1.5 rounded bg-rose-600/90 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                Tükendi
+              </span>
+            )}
+          </div>
+          <div className="p-2">
+            <div className="truncate text-xs font-semibold leading-tight">
+              {u.name}
+            </div>
+            <div className="text-[13px] font-extrabold tabular-nums text-amber-300">
+              {para(u.price)}
+            </div>
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+});
+
 export function AdisyonClient({
   detay,
   gruplar,
@@ -72,6 +137,13 @@ export function AdisyonClient({
   const router = useRouter();
   const now = useNow(20000);
   const [adisyonId, setAdisyonId] = useState<number | null>(detay.adisyonId);
+
+  // Adisyon kapanınca (tamamı ödendi) salona dön — snapshot'ta masayı BOŞ işaretle
+  // ki dönüşte eski dolu hali görünmesin (taze veri arkada teyit eder).
+  const donSalonaBos = useCallback(() => {
+    if (detay.masaId != null) snapshotMasaGuncelle(detay.masaId, null);
+    router.push('/adisyon');
+  }, [detay.masaId, router]);
   const [aktifKat, setAktifKat] = useState<string>(gruplar[0]?.key ?? '');
   const [secili, setSecili] = useState<Set<number>>(new Set());
   const [modal, setModal] = useState<Modal>(null);
@@ -124,6 +196,16 @@ export function AdisyonClient({
   );
   const [, baslat] = useTransition();
 
+  // hizliEkle'nin kimliğini sabit tutabilmek için sepeti ref'ten okuruz (yoksa
+  // her sepet değişiminde callback kimliği değişir, ürün ızgarası memo'su bozulur).
+  // Ref'leri effect'te senkronlarız; handler'lar effect'ten sonra çalışır → güncel.
+  const kalemlerRef = useRef(optimistikKalemler);
+  const adisyonIdRef = useRef(adisyonId);
+  useEffect(() => {
+    kalemlerRef.current = optimistikKalemler;
+    adisyonIdRef.current = adisyonId;
+  });
+
   // Tutar bazlı ödemeler (eşit/serbest/tam) KALAN'dan ANINDA düşsün; refresh
   // gelince detay.tahsilatToplam'a yansıyıp bu optimistik değer 0'a sıfırlanır.
   const [optEkstraOdenen, ekstraOdenenEkle] = useOptimistic(
@@ -138,15 +220,22 @@ export function AdisyonClient({
     (s: IptalKaydi[], yeni: IptalKaydi) => [...s, yeni]
   );
 
+  // İndirim de sepete ANINDA yansısın: server'a yazılırken optimistik tip/değer
+  // üstte kalsın, refresh ile detay güncellenince base'e döner (gecikme hissi yok).
+  const [optIndirimDurum, indirimDurumAyarla] = useOptimistic(
+    { tip: detay.indirimTip, deger: detay.indirimDeger },
+    (_s, yeni: { tip: 'yuzde' | 'tutar' | null; deger: number }) => yeni
+  );
+
   // Optimistik toplam / KALAN (anında güncellensin). İkram toplama girmez;
   // indirim toplamdan düşer (yüzdeyse optimistik toplam üstünden anlık kayar).
   const optToplam = optimistikKalemler
     .filter((k) => !k.ikram)
     .reduce((s, k) => s + k.birimFiyat * k.adet, 0);
-  const optIndirim = detay.indirimTip
-    ? detay.indirimTip === 'yuzde'
-      ? Math.min((optToplam * detay.indirimDeger) / 100, optToplam)
-      : Math.min(detay.indirimDeger, optToplam)
+  const optIndirim = optIndirimDurum.tip
+    ? optIndirimDurum.tip === 'yuzde'
+      ? Math.min((optToplam * optIndirimDurum.deger) / 100, optToplam)
+      : Math.min(optIndirimDurum.deger, optToplam)
     : 0;
   const optKalemOdenen = optimistikKalemler
     .filter((k) => k.durum === 'odendi' && !k.ikram)
@@ -154,6 +243,35 @@ export function AdisyonClient({
   const optKalan =
     optToplam - optIndirim - optKalemOdenen - detay.odenenTutar - optEkstraOdenen;
   const kalemAdet = optimistikKalemler.reduce((s, k) => s + k.adet, 0);
+
+  // ← Salon'a dönmeden ÖNCE: bu masanın güncel tutarını salon snapshot'ına yaz
+  // ki dönüşte eski tutar "flash"ı olmasın; masa da kısa parlar (dolu ise).
+  const salonOzetiYaz = useCallback(() => {
+    if (detay.masaId == null) return; // gel-al → salonda masa yok
+    const ozet: AdisyonOzet | null =
+      adisyonId != null
+        ? {
+            id: adisyonId,
+            acilis: detay.acilis ?? new Date().toISOString(),
+            toplam: optToplam,
+            kalan: Math.max(0, optKalan),
+            kalemSayisi: kalemAdet,
+            kismiOdeme:
+              (detay.tahsilatToplam > 0 || optEkstraOdenen > 0) &&
+              optKalan > 0.001,
+          }
+        : null;
+    snapshotMasaGuncelle(detay.masaId, ozet);
+  }, [
+    detay.masaId,
+    detay.acilis,
+    detay.tahsilatToplam,
+    adisyonId,
+    optToplam,
+    optKalan,
+    kalemAdet,
+    optEkstraOdenen,
+  ]);
 
   // Kalemleri kaynakMasa'ya göre grupla (kendi + birleştirmeden gelenler)
   const { kendi, ekGruplar } = useMemo(() => {
@@ -187,31 +305,42 @@ export function AdisyonClient({
     });
   }
 
-  async function ensureAdisyon(): Promise<number> {
-    if (adisyonId) return adisyonId;
+  const ensureAdisyon = useCallback(async (): Promise<number> => {
+    if (adisyonIdRef.current) return adisyonIdRef.current;
     const res = await fetch('/api/adisyon/ac', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ masaId: detay.masaId }),
     });
     const j = await res.json();
+    adisyonIdRef.current = j.adisyonId;
     setAdisyonId(j.adisyonId);
     return j.adisyonId as number;
-  }
+  }, [detay.masaId]);
 
-  // Kalem ekleme isteklerini sıraya alır: aynı adisyona eşzamanlı create
-  // gitmesin ki sunucudaki "sade satır birleştirme" yarışa girmesin (yoksa
-  // 5 hızlı dokunuş 5 ayrı satır olur). Optimistik UI yine ANINDA güncellenir.
+  // TÜM kalem mutasyonlarını (ekle/güncelle/sil) tek bir FIFO kuyruğa alır.
+  // Neden: sunucu sade satırı "adet + 1" ile atomik birleştirir; istekler
+  // kullanıcı sırasıyla gitmezse yarış olur. Klasik hata: 5 hızlı dokunuştan
+  // sonra adet 4'e düşürülür ama HÂLÂ uçuşta olan ekleme istekleri sunucuda
+  // adedi tekrar artırıp düşürmeyi ezer ("4'e düşüremiyorum"). Hepsini aynı
+  // kuyruğa alınca düşürme, eklemelerden SONRA gider ve son söz kullanıcınındır.
+  // Optimistik UI yine ANINDA güncellenir; ağ sırası arkada korunur.
   const ekleKuyrukRef = useRef<Promise<void>>(Promise.resolve());
+  // Bir mutasyonu kuyruğun sonuna ekler; önceki bitmeden başlamaz.
+  const kuyrukla = useCallback((fn: () => Promise<void>): Promise<void> => {
+    const p = ekleKuyrukRef.current.catch(() => {}).then(fn);
+    ekleKuyrukRef.current = p.catch(() => {});
+    return p;
+  }, []);
 
   // Ürüne dokun → ANINDA sepete (optimistik). Aynı sade ürüne tekrar dokunulursa
   // yeni satır yerine adet artar; gerçek adet artışını sunucu atomik yapar.
-  function hizliEkle(urun: Urun) {
+  const hizliEkle = useCallback((urun: Urun) => {
     if (!urun.available) return;
     setHata(null);
     // Sade satır = yarımsız/notsuz/ikramsız/açık/kendi. Optimistikte id'si ne
     // olursa olsun (henüz kaydedilmemiş geçici satır dahil) eşleştir.
-    const mevcut = optimistikKalemler.find(
+    const mevcut = kalemlerRef.current.find(
       (k) =>
         k.urunId === urun.id &&
         !k.yarim &&
@@ -251,29 +380,27 @@ export function AdisyonClient({
       // Ağ çağrısını sıraya al: her zaman create — sunucu aynı sade satırı bulup
       // adedini ATOMİK artırır (sade.adet + 1). Sıralı olduğu için yarış yok.
       let yeniKalemId: number | undefined;
-      await (ekleKuyrukRef.current = ekleKuyrukRef.current
-        .catch(() => {})
-        .then(async () => {
-          try {
-            const aid = await ensureAdisyon();
-            const res = await fetch('/api/kalem', {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({
-                adisyonId: aid,
-                urunId: urun.id,
-                urunAd: urun.name,
-                birimFiyat: urun.price,
-                adet: 1,
-                yarim: false,
-              }),
-            });
-            const j = await res.json().catch(() => ({}));
-            if (typeof j?.kalemId === 'number') yeniKalemId = j.kalemId;
-          } catch {
-            /* sessiz geç — refresh gerçeği geri getirir */
-          }
-        }));
+      await kuyrukla(async () => {
+        try {
+          const aid = await ensureAdisyon();
+          const res = await fetch('/api/kalem', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              adisyonId: aid,
+              urunId: urun.id,
+              urunAd: urun.name,
+              birimFiyat: urun.price,
+              adet: 1,
+              yarim: false,
+            }),
+          });
+          const j = await res.json().catch(() => ({}));
+          if (typeof j?.kalemId === 'number') yeniKalemId = j.kalemId;
+        } catch {
+          /* sessiz geç — refresh gerçeği geri getirir */
+        }
+      });
 
       // Gerçek id gelince yeni optimistik satırın geçici id'sini değiştir →
       // refresh beklemeden kalem düzenlenebilir/silinebilir olur.
@@ -282,7 +409,7 @@ export function AdisyonClient({
       }
       router.refresh();
     });
-  }
+  }, [ensureAdisyon, kuyrukla, optimistikUygula, baslat, router]);
 
   // Sepet kalemine dokun → o kalemi düzenle (adet / yarım / not). Optimistik
   // satır (id<0, henüz kaydedilmemiş) ve ödenmiş kalem düzenlenemez.
@@ -313,33 +440,37 @@ export function AdisyonClient({
         id: k.id,
         veri: { adet: pAdet, yarim: pYarim, ikram: pIkram, birimFiyat: pYarim ? baz / 2 : baz, not },
       });
+      // Kuyruğa al: uçuşta olan ekleme istekleri bitmeden gitmesin, yoksa
+      // sunucu adedi tekrar artırıp bu düşürmeyi ezer ("4'e düşüremiyorum").
       let kapandi = false;
-      try {
-        const r = await fetch('/api/kalem/guncelle', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            kalemId: k.id,
-            birimFiyat: baz,
-            adet: pAdet,
-            yarim: pYarim,
-            ikram: pIkram,
-            not,
-          }),
-        });
-        kapandi = !!(await r.json().catch(() => ({})))?.kapandi;
-      } catch {
-        /* sessiz geç */
-      }
-      if (kapandi) router.push('/adisyon');
+      await kuyrukla(async () => {
+        try {
+          const r = await fetch('/api/kalem/guncelle', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              kalemId: k.id,
+              birimFiyat: baz,
+              adet: pAdet,
+              yarim: pYarim,
+              ikram: pIkram,
+              not,
+            }),
+          });
+          kapandi = !!(await r.json().catch(() => ({})))?.kapandi;
+        } catch {
+          /* sessiz geç */
+        }
+      });
+      if (kapandi) donSalonaBos();
       else router.refresh();
     });
   }
 
   // İndirim modalını mevcut değerle aç
   function indirimAc() {
-    setIndTip(detay.indirimTip === 'tutar' ? 'tutar' : 'yuzde');
-    setIndDeger(detay.indirimTip ? String(detay.indirimDeger) : '');
+    setIndTip(optIndirimDurum.tip === 'tutar' ? 'tutar' : 'yuzde');
+    setIndDeger(optIndirimDurum.tip ? String(optIndirimDurum.deger) : '');
     setHata(null);
     setModal('indirim');
   }
@@ -350,6 +481,8 @@ export function AdisyonClient({
     setModal(null);
     setHata(null);
     baslat(async () => {
+      // Sepetteki indirim satırı ANINDA güncellensin (kaldırınca tip=null).
+      indirimDurumAyarla({ tip, deger: tip ? deger : 0 });
       let kapandi = false;
       try {
         const r = await fetch('/api/adisyon/indirim', {
@@ -361,7 +494,7 @@ export function AdisyonClient({
       } catch {
         /* sessiz geç */
       }
-      if (kapandi) router.push('/adisyon');
+      if (kapandi) donSalonaBos();
       else router.refresh();
     });
   }
@@ -380,18 +513,21 @@ export function AdisyonClient({
         tutar: k.ikram ? 0 : k.birimFiyat * k.adet,
         zaman: new Date().toISOString(),
       });
+      // Kuyruğa al: uçuştaki eklemelerle yarışmasın (sıra korunsun).
       let kapandi = false;
-      try {
-        const r = await fetch('/api/kalem/guncelle', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ kalemId: k.id, sil: true }),
-        });
-        kapandi = !!(await r.json().catch(() => ({})))?.kapandi;
-      } catch {
-        /* sessiz geç */
-      }
-      if (kapandi) router.push('/adisyon');
+      await kuyrukla(async () => {
+        try {
+          const r = await fetch('/api/kalem/guncelle', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ kalemId: k.id, sil: true }),
+          });
+          kapandi = !!(await r.json().catch(() => ({})))?.kapandi;
+        } catch {
+          /* sessiz geç */
+        }
+      });
+      if (kapandi) donSalonaBos();
       else router.refresh();
     });
   }
@@ -464,7 +600,7 @@ export function AdisyonClient({
           setHata(j?.error ?? 'İşlem başarısız');
           return;
         }
-        if (hepKapanir || j?.kapandi) router.push('/adisyon');
+        if (hepKapanir || j?.kapandi) donSalonaBos();
         else router.refresh();
       } catch {
         setHata('Bağlantı hatası');
@@ -536,6 +672,7 @@ export function AdisyonClient({
         <header className="flex shrink-0 items-center gap-3 border-b border-slate-800 bg-slate-900/60 px-4 py-3">
           <Link
             href="/adisyon"
+            onClick={salonOzetiYaz}
             className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
           >
             ← Salon
@@ -567,52 +704,7 @@ export function AdisyonClient({
         </div>
 
         <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto p-3">
-          <div className="grid grid-cols-3 content-start gap-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-            {aktifGrup?.urunler.map((u) => (
-            <button
-              key={u.id}
-              onClick={() => hizliEkle(u)}
-              disabled={!u.available}
-              className={`group overflow-hidden rounded-xl border border-slate-800 bg-slate-900/50 text-left transition-transform active:scale-[0.97] ${
-                u.available ? 'hover:border-slate-600' : 'opacity-50'
-              }`}
-            >
-              <div className="relative aspect-4/3 bg-slate-800">
-                {u.image ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={u.image}
-                    alt={u.name}
-                    loading="lazy"
-                    className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
-                  />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center text-2xl opacity-40">
-                    🍽️
-                  </div>
-                )}
-                {u.available && u.portionable && (
-                  <span className="absolute right-1.5 top-1.5 rounded bg-slate-900/80 px-1.5 py-0.5 text-[10px] font-bold text-amber-300 backdrop-blur">
-                    ½
-                  </span>
-                )}
-                {!u.available && (
-                  <span className="absolute left-1.5 top-1.5 rounded bg-rose-600/90 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                    Tükendi
-                  </span>
-                )}
-              </div>
-              <div className="p-2">
-                <div className="truncate text-xs font-semibold leading-tight">
-                  {u.name}
-                </div>
-                <div className="text-[13px] font-extrabold tabular-nums text-amber-300">
-                  {para(u.price)}
-                </div>
-              </div>
-            </button>
-          ))}
-          </div>
+          <UrunIzgara urunler={aktifGrup?.urunler ?? []} onEkle={hizliEkle} />
         </div>
 
         {/* Mobil: alt özet çubuğu — dokununca Hesap modalını açar */}
@@ -785,11 +877,11 @@ export function AdisyonClient({
                 <span className="flex items-center gap-1.5">
                   <Ikon ad="indirim" className="h-4 w-4 text-rose-300/80" />
                   <span>İndirim</span>
-                  {detay.indirimTip && (
+                  {optIndirimDurum.tip && (
                     <span className="text-rose-300">
-                      {detay.indirimTip === 'yuzde'
-                        ? `%${detay.indirimDeger}`
-                        : para(detay.indirimDeger)}
+                      {optIndirimDurum.tip === 'yuzde'
+                        ? `%${optIndirimDurum.deger}`
+                        : para(optIndirimDurum.deger)}
                     </span>
                   )}
                 </span>
@@ -1245,7 +1337,7 @@ export function AdisyonClient({
           >
             Uygula
           </button>
-          {detay.indirimTip && (
+          {optIndirimDurum.tip && (
             <button
               onClick={() => indirimUygula(null, 0)}
               disabled={islem}

@@ -24,6 +24,7 @@ import {
 import type { BolgeOzet, GelalOzet, MasaOzet, MasaTip, SalonOzet } from '@/lib/types';
 import { MasaKart } from '@/components/MasaKart';
 import { SabitEleman } from '@/components/SabitEleman';
+import { Yukleniyor } from '@/components/Yukleniyor';
 import {
   HIZA_ESIK,
   hizalaMerkez,
@@ -34,6 +35,7 @@ import {
 } from '@/lib/kroki';
 import { gecenSure, para } from '@/lib/format';
 import { useNow } from '@/lib/useNow';
+import { snapshotOku, snapshotYaz, vurguOku } from '@/lib/salon-snapshot';
 import {
   OLAY_ADISYON_KAPANDI,
   OLAY_MASA,
@@ -69,15 +71,42 @@ const EKLENEBILIR: { tip: MasaTip; label: string }[] = [
   { tip: 'gecit', label: '↔ Geçit' },
 ];
 
-export function SalonClient({ initial }: { initial: SalonOzet }) {
-  const [data, setData] = useState<SalonOzet>(initial);
-  const [gorunum, setGorunum] = useState<Gorunum>(() => {
-    const b0 = [...initial.bolgeler].sort((a, b) => a.sira - b.sira)[0];
-    if (!b0) return { tip: 'kat', kat: 'Alt Kat' };
-    // İlk kat birden çok bölgeye sahipse bütün görünümle aç, değilse tek bölge.
-    const kacBolge = initial.bolgeler.filter((b) => b.kat === b0.kat).length;
-    return kacBolge > 1 ? { tip: 'kat', kat: b0.kat } : { tip: 'bolge', id: b0.id };
-  });
+const BOS_SALON: SalonOzet = {
+  bolgeler: [],
+  gelaller: [],
+  ozet: {
+    bos: 0,
+    dolu: 0,
+    odemeBekleyen: 0,
+    acikHesapToplam: 0,
+    gunlukCiro: 0,
+    gunIptal: 0,
+    gunIkram: 0,
+    gunIndirim: 0,
+  },
+};
+
+// İlk açılışta seçili görünüm: ilk kat çok bölgeli → bütün; değilse tek bölge.
+function varsayilanGorunum(d: SalonOzet): Gorunum {
+  const b0 = [...d.bolgeler].sort((a, b) => a.sira - b.sira)[0];
+  if (!b0) return { tip: 'kat', kat: 'Alt Kat' };
+  const kacBolge = d.bolgeler.filter((b) => b.kat === b0.kat).length;
+  return kacBolge > 1 ? { tip: 'kat', kat: b0.kat } : { tip: 'bolge', id: b0.id };
+}
+
+export function SalonClient({ initial }: { initial: SalonOzet | null }) {
+  const baslangic = initial ?? BOS_SALON;
+  const [data, setData] = useState<SalonOzet>(baslangic);
+  // Gerçek veri (SSR / snapshot / fetch) eline geçti mi — yoksa loader göster.
+  const [hazir, setHazir] = useState(initial != null);
+  // Arka planda taze veri çekiliyor mu — snapshot eski tutarları gösterirken
+  // "donmuş gibi" hissini önlemek için üstte ince çubuk gösteririz.
+  const [yenileniyor, setYenileniyor] = useState(false);
+  // Bu mount'ta en az bir kez taze veri geldi mi — çubuk yalnız dönüş sonrası
+  // (snapshot↔taze arası) görünsün; sonraki canlı yenilemelerde sessiz kalsın.
+  const [taze, setTaze] = useState(false);
+  const varsayilanKuruldu = useRef(initial != null);
+  const [gorunum, setGorunum] = useState<Gorunum>(() => varsayilanGorunum(baslangic));
   const [gelalModu, setGelalModu] = useState(false); // Gel-Al sekmesi aktif mi
   const [gelalBekleyen, setGelalBekleyen] = useState(false); // "Yeni Gel-Al" oluşturuluyor
   const [duzenle, setDuzenle] = useState(false);
@@ -99,13 +128,68 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
   const now = useNow(20000);
 
   const refetch = useCallback(async () => {
+    setYenileniyor(true);
     try {
       const res = await fetch('/api/salon', { cache: 'no-store' });
-      if (res.ok) setData(await res.json());
+      if (res.ok) {
+        setData(await res.json());
+        setHazir(true);
+        setTaze(true);
+      }
     } catch {
       /* sessiz geç */
+    } finally {
+      setYenileniyor(false);
     }
   }, []);
+
+  // Bir masayı kısa süre parlat — Pusher güncellemesi veya salona dönüş vurgusu.
+  const vurgula = useCallback((mid: number) => {
+    setVurgu((s) => new Set(s).add(mid));
+    setTimeout(
+      () =>
+        setVurgu((s) => {
+          const n = new Set(s);
+          n.delete(mid);
+          return n;
+        }),
+      1200
+    );
+  }, []);
+
+  // Mount: önce son anlık görüntüyü (varsa) boya → ekran ANINDA dolar; sonra
+  // arkada taze veriyi çek. SSR beklemediğimiz için masa↔salon geçişi anlık.
+  // sessionStorage yalnız tarayıcıda var; bu yüzden okuma mount sonrası (effect)
+  // yapılır — useState init'te yapsaydık SSR loader'ı ile hidrasyon uyumsuzluğu
+  // olurdu. Tek seferlik bilinçli senkron; cascading-render uyarısı kapalı.
+  /* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
+  useEffect(() => {
+    if (!initial) {
+      const snap = snapshotOku();
+      if (snap) {
+        setData(snap);
+        setHazir(true);
+      }
+    }
+    // Masa ekranından güncellenmiş bir masa ile döndüysek o masayı parlat.
+    const v = vurguOku();
+    if (v != null) vurgula(v);
+    refetch();
+  }, []);
+  /* eslint-enable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
+
+  // İlk gerçek veri geldiğinde (boş başladıysak) varsayılan görünümü kur.
+  useEffect(() => {
+    if (!varsayilanKuruldu.current && data.bolgeler.length > 0) {
+      setGorunum(varsayilanGorunum(data));
+      varsayilanKuruldu.current = true;
+    }
+  }, [data]);
+
+  // Anlık görüntüyü sakla — bir sonraki dönüşte anında göstermek için.
+  useEffect(() => {
+    if (hazir && data.bolgeler.length > 0) snapshotYaz(data);
+  }, [data, hazir]);
 
   // Yeni gel-al (paket) adisyonu aç → doğrudan sipariş ekranına geç.
   const yeniGelal = useCallback(async () => {
@@ -129,19 +213,7 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
     if (!pc) return;
     const ch = pc.subscribe(SALON_KANAL);
     const onMasa = (p: { masaId?: number }) => {
-      const mid = p?.masaId;
-      if (typeof mid === 'number') {
-        setVurgu((s) => new Set(s).add(mid));
-        setTimeout(
-          () =>
-            setVurgu((s) => {
-              const n = new Set(s);
-              n.delete(mid);
-              return n;
-            }),
-          1200
-        );
-      }
+      if (typeof p?.masaId === 'number') vurgula(p.masaId);
       refetch();
     };
     ch.bind(OLAY_MASA, onMasa);
@@ -150,7 +222,7 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
       ch.unbind_all();
       pc.unsubscribe(SALON_KANAL);
     };
-  }, [refetch]);
+  }, [refetch, vurgula]);
 
   useEffect(() => {
     const onFocus = () => refetch();
@@ -523,8 +595,18 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
 
   const o = data.ozet;
 
+  // Henüz hiçbir veri yok (oturumda ilk açılış) → markalı loader.
+  if (!hazir) return <Yukleniyor mesaj="Salon yükleniyor…" />;
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      {/* Arka planda tazelenirken üstte kayan ince çubuk — snapshot eski tutar
+          gösterirken "donmuş" hissini önler (mobil + masaüstü ortak). */}
+      {yenileniyor && !taze && (
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-50 h-0.5 overflow-hidden bg-amber-400/15">
+          <div className="animate-yukleme-cubuk h-full w-1/4 rounded-full bg-amber-400" />
+        </div>
+      )}
       {/* Üst bar — mobil (garson) sade; md+ (kasa/tablet) tüm yönetim aksiyonları */}
       <header className="flex items-center justify-between gap-3 border-b border-slate-800 bg-slate-900/60 px-3 py-2.5 backdrop-blur sm:px-4 sm:py-3">
         <div className="flex min-w-0 items-baseline gap-2">
@@ -691,7 +773,7 @@ export function SalonClient({ initial }: { initial: SalonOzet }) {
       ) : (
         <div className="min-h-0 flex-1">
           {/* Telefon: bölgeye göre gruplanmış liste (tek/iki kolon) */}
-          <div className="pb-safe overflow-auto p-4 md:hidden">
+          <div className="pb-safe h-full min-h-0 overflow-auto p-4 md:hidden">
             {gosterilenBolgeler.map((b) => (
               <div key={b.id} className="mb-5 last:mb-0">
                 {gosterilenBolgeler.length > 1 && (

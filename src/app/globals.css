@@ -63,6 +63,19 @@ body {
   animation: nabiz 1.8s ease-in-out infinite;
 }
 
+/* Arka planda taze veri çekilirken üstte kayan ince çubuk (belirsiz ilerleme) */
+@keyframes yukleme-cubuk {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+.animate-yukleme-cubuk {
+  animation: yukleme-cubuk 1.1s ease-in-out infinite;
+}
+
 /* ============ KROKİ — Mimari Blueprint ============ */
 
 /* İnce + kalın grid (milimetrik kâğıt hissi) */

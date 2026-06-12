@@ -1,9 +1,9 @@
-import { getSalon } from '@/lib/salon';
 import { SalonClient } from './SalonClient';
 
-export const dynamic = 'force-dynamic'; // canlı veri, build'de prerender etme
-
-export default async function AdisyonPage() {
-  const data = await getSalon();
-  return <SalonClient initial={data} />;
+// Salon verisi istemci tarafında /api/salon'dan beslenir ve Pusher ile canlı
+// kalır. Sayfa kabuğunu statik tutuyoruz ki masa↔salon geçişleri SSR'ı (6 DB
+// sorgusu) beklemeden ANINDA açılsın; son görüntü sessionStorage'dan boyanıp
+// taze veri arkada tazelenir.
+export default function AdisyonPage() {
+  return <SalonClient initial={null} />;
 }
