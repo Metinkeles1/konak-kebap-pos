@@ -143,6 +143,30 @@ export function SalonClient({ initial }: { initial: SalonOzet | null }) {
     }
   }, []);
 
+  // "Menüyü Senkronize Et": paket sistemden menüyü çekip DB'yi günceller.
+  // Açık adisyon sayfaları menüyü SSR'da okuduğundan, başarı sonrası router
+  // refresh ile yeni menü/fiyatlar yayılır. Tek tık — VS Code gerekmez.
+  const [menuSenk, setMenuSenk] = useState(false);
+  const menuSenkronizeEt = useCallback(async () => {
+    if (menuSenk) return;
+    setMenuSenk(true);
+    try {
+      const res = await fetch('/api/menu/sync', { method: 'POST' });
+      const veri = await res.json().catch(() => null);
+      if (res.ok && veri?.ok) {
+        const ek = veri.silinen > 0 ? `, ${veri.silinen} ürün kaldırıldı` : '';
+        alert(`✓ Menü güncellendi: ${veri.toplam} ürün${ek}.`);
+        router.refresh();
+      } else {
+        alert(`Menü güncellenemedi: ${veri?.error ?? 'paket sisteme ulaşılamadı'}`);
+      }
+    } catch {
+      alert('Menü güncellenemedi: bağlantı hatası.');
+    } finally {
+      setMenuSenk(false);
+    }
+  }, [menuSenk, router]);
+
   // Bir masayı kısa süre parlat — Pusher güncellemesi veya salona dönüş vurgusu.
   const vurgula = useCallback((mid: number) => {
     setVurgu((s) => new Set(s).add(mid));
@@ -631,6 +655,14 @@ export function SalonClient({ initial }: { initial: SalonOzet | null }) {
           >
             📊 Gün Sonu
           </Link>
+          <button
+            onClick={menuSenkronizeEt}
+            disabled={menuSenk}
+            title="Paket sistemden menüyü (ürün/fiyat) çek"
+            className="hidden rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-50 md:inline-flex"
+          >
+            {menuSenk ? '⏳ Senkronize…' : '🔄 Menüyü Senkronize Et'}
+          </button>
           <button
             onClick={refetch}
             aria-label="Yenile"

@@ -1,6 +1,7 @@
 // Konak Kebap — Adisyon Sistemi şeması
-// DİKKAT: Burada Urun/UrunGrubu YOK — menü paket API'sinden geliyor (docs/SETUP.md §1).
-// DB sadece masa + adisyon + satılan kalem + tahsilat tutar.
+// Menü artık DB'de cache'lenir (Urun): paket API'sinden "Menüyü Senkronize Et"
+// butonuyla çekilir (src/lib/menu-sync.ts). DB ayrıca masa + adisyon +
+// satılan kalem + tahsilat tutar.
 
 datasource db {
   provider = "postgresql"
@@ -9,6 +10,23 @@ datasource db {
 
 generator client {
   provider = "prisma-client-js"
+}
+
+// Menü ürünleri — paket (take-away) sisteminin /api/products çıktısının cache'i.
+// "Menüyü Senkronize Et" butonu bu tabloyu doldurur; getMenu() buradan okur.
+// AdisyonKalem.urunId bu id'ye işaret eder ama FK YOK (kalem anlık kopya tutar,
+// menü değişse/ürün silinse de geçmiş bozulmaz).
+model Urun {
+  id          String   @id // paket sistemdeki ürün id (örn. "k1")
+  name        String
+  price       Decimal
+  category    String
+  available   Boolean  @default(true)
+  image       String?
+  portionable Boolean  @default(false)
+  guncellenme DateTime @updatedAt // son senkron zamanı
+
+  @@index([category])
 }
 
 model Bolge {

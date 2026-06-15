@@ -72,21 +72,28 @@ const NOT_SECENEK = [
 // dokunuşta tüm kartlar yeniden render edilmez → optimistik güncelleme anında boyanır.
 const UrunIzgara = memo(function UrunIzgara({
   urunler,
+  adetler,
   onEkle,
 }: {
   urunler: Urun[];
+  adetler: Record<string, number>; // urunId → sepetteki toplam adet
   onEkle: (u: Urun) => void;
 }) {
   return (
     <div className="grid grid-cols-3 content-start gap-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-      {urunler.map((u) => (
+      {urunler.map((u) => {
+        const adet = adetler[u.id] ?? 0; // bu üründen sepette kaç tane var
+        const sepette = adet > 0;
+        return (
         <button
           key={u.id}
           onClick={() => onEkle(u)}
           disabled={!u.available}
-          className={`group overflow-hidden rounded-xl border border-slate-800 bg-slate-900/50 text-left transition-transform active:scale-[0.97] ${
-            u.available ? 'hover:border-slate-600' : 'opacity-50'
-          }`}
+          className={`group overflow-hidden rounded-xl border bg-slate-900/50 text-left transition-transform active:scale-[0.97] ${
+            sepette
+              ? 'border-amber-400 ring-2 ring-amber-400/40'
+              : 'border-slate-800'
+          } ${u.available ? 'hover:border-slate-600' : 'opacity-50'}`}
         >
           <div className="relative aspect-4/3 bg-slate-800">
             {u.image ? (
@@ -101,6 +108,12 @@ const UrunIzgara = memo(function UrunIzgara({
               <div className="flex h-full w-full items-center justify-center text-2xl opacity-40">
                 🍽️
               </div>
+            )}
+            {/* Sepette ekli adet — net görünür rozet (ör. "4") */}
+            {sepette && (
+              <span className="absolute left-1.5 top-1.5 flex h-6 min-w-6 items-center justify-center rounded-full bg-amber-400 px-1.5 text-xs font-black tabular-nums text-slate-900 shadow-md">
+                {adet}
+              </span>
             )}
             {u.available && u.portionable && (
               <span className="absolute right-1.5 top-1.5 rounded bg-slate-900/80 px-1.5 py-0.5 text-[10px] font-bold text-amber-300 backdrop-blur">
@@ -122,7 +135,8 @@ const UrunIzgara = memo(function UrunIzgara({
             </div>
           </div>
         </button>
-      ))}
+        );
+      })}
     </div>
   );
 });
@@ -243,6 +257,14 @@ export function AdisyonClient({
   const optKalan =
     optToplam - optIndirim - optKalemOdenen - detay.odenenTutar - optEkstraOdenen;
   const kalemAdet = optimistikKalemler.reduce((s, k) => s + k.adet, 0);
+
+  // Menü kartlarında "sepette kaç tane" rozeti için: urunId → toplam adet.
+  // Sadece sepet değişince yeniden hesaplanır (modal vb. ızgarayı render etmesin).
+  const urunAdetleri = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const k of optimistikKalemler) m[k.urunId] = (m[k.urunId] ?? 0) + k.adet;
+    return m;
+  }, [optimistikKalemler]);
 
   // ← Salon'a dönmeden ÖNCE: bu masanın güncel tutarını salon snapshot'ına yaz
   // ki dönüşte eski tutar "flash"ı olmasın; masa da kısa parlar (dolu ise).
@@ -704,7 +726,11 @@ export function AdisyonClient({
         </div>
 
         <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto p-3">
-          <UrunIzgara urunler={aktifGrup?.urunler ?? []} onEkle={hizliEkle} />
+          <UrunIzgara
+            urunler={aktifGrup?.urunler ?? []}
+            adetler={urunAdetleri}
+            onEkle={hizliEkle}
+          />
         </div>
 
         {/* Mobil: alt özet çubuğu — dokununca Hesap modalını açar */}
