@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { hesapla, kapatKontrol } from '@/lib/hesap';
-import { gecerliArac } from '@/lib/odeme';
+import { gecerliArac, gecerliYemekKarti } from '@/lib/odeme';
 import { tetikle } from '@/lib/pusher-server';
 import { OLAY_ADISYON_KAPANDI, OLAY_MASA, SALON_KANAL } from '@/lib/realtime';
 
 // Eşit bölme ("4 kişiyiz"): pay = toplam / kişi sayısı; her ödemede 1+ pay düşülür.
 export async function POST(req: Request) {
-  const { adisyonId, kisiSayisi, odenenPay, arac } = await req.json();
+  const { adisyonId, kisiSayisi, odenenPay, arac, aracDetay } = await req.json();
   if (
     typeof adisyonId !== 'number' ||
     typeof kisiSayisi !== 'number' ||
@@ -18,6 +18,8 @@ export async function POST(req: Request) {
   ) {
     return NextResponse.json({ error: 'geçersiz veri' }, { status: 400 });
   }
+  const gArac = gecerliArac(arac);
+  const ykDetay = gArac === 'yemek' ? gecerliYemekKarti(aracDetay) : null;
 
   const sonuc = await db.$transaction(async (tx) => {
     const { toplam } = await hesapla(tx, adisyonId);
@@ -29,7 +31,8 @@ export async function POST(req: Request) {
         adisyonId,
         tutar,
         yontem: 'esit',
-        arac: gecerliArac(arac),
+        arac: gArac,
+        aracDetay: ykDetay,
         detay: `${kisiSayisi} kişiden ${odenenPay} pay`,
       },
     });

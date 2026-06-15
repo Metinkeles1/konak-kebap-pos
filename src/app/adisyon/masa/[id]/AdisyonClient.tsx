@@ -21,7 +21,7 @@ import type { Urun, UrunGrubu } from '@/lib/menu';
 import type { AdisyonOzet } from '@/lib/types';
 import { snapshotMasaGuncelle } from '@/lib/salon-snapshot';
 import { gecenSure, para } from '@/lib/format';
-import { ODEME_ARACLARI, type OdemeArac } from '@/lib/odeme';
+import { ODEME_ARACLARI, YEMEK_KARTLARI, type OdemeArac } from '@/lib/odeme';
 import { useNow } from '@/lib/useNow';
 import { AdisyonFis } from '@/components/receipt/AdisyonFis';
 import { Ikon, type IkonAd } from '@/components/PosIkon';
@@ -164,6 +164,7 @@ export function AdisyonClient({
   const [odenenPay, setOdenenPay] = useState(1);
   const [serbestTutar, setSerbestTutar] = useState('');
   const [arac, setArac] = useState<OdemeArac>('nakit'); // seçili ödeme aracı
+  const [yemekKarti, setYemekKarti] = useState<string | null>(null); // arac='yemek' iken marka
   const [islem, setIslem] = useState(false);
   const [hata, setHata] = useState<string | null>(null);
   // Mobilde Hesap, alttan açılan modal (bottom-sheet). Masaüstünde yan panel
@@ -659,16 +660,19 @@ export function AdisyonClient({
     })();
   }
 
+  // Ödeme aracı 'yemek' ise seçili kart markası gönderilir (yoksa null).
+  const aracDetay = arac === 'yemek' ? yemekKarti : null;
+
   const hesabiKapat = () => {
     if (!adisyonId || optKalan <= 0.001) return;
     const kalan = optKalan;
-    odemeIste('/api/odeme/tam', { adisyonId, arac }, () => ekstraOdenenEkle(kalan), true);
+    odemeIste('/api/odeme/tam', { adisyonId, arac, aracDetay }, () => ekstraOdenenEkle(kalan), true);
   };
 
   const odeKalem = () => {
     if (!adisyonId || secili.size === 0) return;
     const ids = [...secili];
-    odemeIste('/api/odeme/kalem', { adisyonId, kalemIds: ids, arac }, () =>
+    odemeIste('/api/odeme/kalem', { adisyonId, kalemIds: ids, arac, aracDetay }, () =>
       ids.forEach((id) =>
         optimistikUygula({ tip: 'guncelle', id, veri: { durum: 'odendi' } })
       )
@@ -678,7 +682,7 @@ export function AdisyonClient({
   const odeEsit = () => {
     if (!adisyonId) return;
     const tutar = (optToplam / Math.max(1, kisiSayisi)) * odenenPay;
-    odemeIste('/api/odeme/esit', { adisyonId, kisiSayisi, odenenPay, arac }, () =>
+    odemeIste('/api/odeme/esit', { adisyonId, kisiSayisi, odenenPay, arac, aracDetay }, () =>
       ekstraOdenenEkle(tutar)
     );
   };
@@ -690,7 +694,7 @@ export function AdisyonClient({
       return;
     }
     setSerbestTutar('');
-    odemeIste('/api/odeme/serbest', { adisyonId, tutar, arac }, () =>
+    odemeIste('/api/odeme/serbest', { adisyonId, tutar, arac, aracDetay }, () =>
       ekstraOdenenEkle(tutar)
     );
   };
@@ -1023,6 +1027,29 @@ export function AdisyonClient({
                     );
                   })}
                 </div>
+
+                {/* Yemek kartı markası — yalnız "Yemek" seçiliyken */}
+                {arac === 'yemek' && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {YEMEK_KARTLARI.map((y) => {
+                      const aktif = yemekKarti === y.key;
+                      return (
+                        <button
+                          key={y.key}
+                          onClick={() => setYemekKarti(aktif ? null : y.key)}
+                          aria-pressed={aktif}
+                          className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-all ${
+                            aktif
+                              ? 'border-sky-400 bg-sky-400/10 text-sky-300 ring-1 ring-sky-400/60'
+                              : 'border-slate-700/70 bg-slate-800/40 text-slate-400 hover:border-slate-600 hover:text-slate-200'
+                          }`}
+                        >
+                          {y.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* Aksiyonlar — Hesabı Kapat birincil, Böl/Masa ikincil */}
@@ -1147,7 +1174,7 @@ export function AdisyonClient({
                   className="flex-1 rounded-lg border border-slate-600 bg-slate-800 px-3 py-2.5 tabular-nums outline-none focus:border-amber-400"
                 />
                 <button
-                  onClick={() => setSerbestTutar(String(Math.round(detay.kalan)))}
+                  onClick={() => setSerbestTutar(String(Math.round(Math.max(0, optKalan))))}
                   className="rounded-lg border border-slate-600 px-3 py-2.5 text-slate-300 hover:bg-slate-700"
                 >
                   KALAN

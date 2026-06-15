@@ -126,6 +126,7 @@ model Tahsilat {
   tutar     Decimal
   yontem    String // bölme yöntemi: "kalem" | "esit" | "serbest" | "tam"
   arac      String   @default("nakit") // ödeme aracı: "nakit" | "kart" | "yemek" | "havale"
+  aracDetay String? // arac="yemek" iken kart markası: "multinet" | "sodexo" | ...
   detay     String? // "4 kişiden 1 pay" / "İÇ3 kebap+ayran" gibi açıklama
   zaman     DateTime @default(now())
 
