@@ -122,6 +122,9 @@ export function SalonClient({ initial }: { initial: SalonOzet | null }) {
   const [hedefMod, setHedefMod] = useState<HedefMod | null>(null);
   const [ekleAcik, setEkleAcik] = useState(false);
   const [olcek, setOlcek] = useState(1);
+  // Mobil görünüm: 'kroki' = bölge bölge ölçeklenmiş yerleşim (varsayılan),
+  // 'liste' = bölgeye göre gruplu kart ızgarası. Masaüstü her zaman tam-kat kroki.
+  const [mobilMod, setMobilMod] = useState<'kroki' | 'liste'>('kroki');
   const surukleRef = useRef(false);
   const kapsayiciRef = useRef<HTMLDivElement | null>(null);
   const router = useRouter();
@@ -803,41 +806,70 @@ export function SalonClient({ initial }: { initial: SalonOzet | null }) {
           </code>
         </div>
       ) : (
-        <div className="min-h-0 flex-1">
-          {/* Telefon: bölgeye göre gruplanmış liste (tek/iki kolon) */}
-          <div className="pb-safe h-full min-h-0 overflow-auto p-4 md:hidden">
-            {gosterilenBolgeler.map((b) => (
-              <div key={b.id} className="mb-5 last:mb-0">
-                {gosterilenBolgeler.length > 1 && (
-                  <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-sky-300/60">
-                    {b.ad}
-                    <span className="text-slate-500">· {b.masalar.length}</span>
-                  </div>
-                )}
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                  {b.masalar.map((m) =>
-                    m.tip !== 'masa' ? (
-                      <div key={m.id} className="h-26">
-                        <SabitEleman masa={m} />
-                      </div>
-                    ) : (
-                      <button
-                        key={m.id}
-                        onClick={() => masaTikla(m)}
-                        className="h-26 text-left"
-                      >
-                        <MasaKart
-                          masa={m}
-                          now={now}
-                          vurgulu={vurgu.has(m.id)}
-                          bekleyen={bekleyenId === m.id}
-                        />
-                      </button>
-                    )
-                  )}
-                </div>
-              </div>
+        <div className="flex min-h-0 flex-1 flex-col">
+          {/* Mobil: Kroki / Liste anahtarı (md altı). Kroki = bölge bölge
+              ölçeklenmiş yerleşim; Liste = bölgeye göre gruplu kart ızgarası. */}
+          <div className="flex shrink-0 items-center gap-1 border-b border-slate-800 px-3 py-1.5 md:hidden">
+            {(['kroki', 'liste'] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => setMobilMod(m)}
+                className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
+                  mobilMod === m
+                    ? 'bg-slate-100 text-slate-900'
+                    : 'text-slate-300 hover:bg-slate-800'
+                }`}
+              >
+                {m === 'kroki' ? '🗺 Kroki' : '☰ Liste'}
+              </button>
             ))}
+          </div>
+
+          {/* Telefon içeriği */}
+          <div className="pb-safe min-h-0 flex-1 overflow-auto p-4 md:hidden">
+            {mobilMod === 'kroki'
+              ? gosterilenBolgeler.map((b) => (
+                  <MobilBolgeKroki
+                    key={b.id}
+                    bolge={b}
+                    now={now}
+                    vurgu={vurgu}
+                    bekleyen={bekleyenId}
+                    onTikla={masaTikla}
+                  />
+                ))
+              : gosterilenBolgeler.map((b) => (
+                  <div key={b.id} className="mb-5 last:mb-0">
+                    {gosterilenBolgeler.length > 1 && (
+                      <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-sky-300/60">
+                        {b.ad}
+                        <span className="text-slate-500">· {b.masalar.length}</span>
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                      {b.masalar.map((m) =>
+                        m.tip !== 'masa' ? (
+                          <div key={m.id} className="h-26">
+                            <SabitEleman masa={m} />
+                          </div>
+                        ) : (
+                          <button
+                            key={m.id}
+                            onClick={() => masaTikla(m)}
+                            className="h-26 text-left"
+                          >
+                            <MasaKart
+                              masa={m}
+                              now={now}
+                              vurgulu={vurgu.has(m.id)}
+                              bekleyen={bekleyenId === m.id}
+                            />
+                          </button>
+                        )
+                      )}
+                    </div>
+                  </div>
+                ))}
           </div>
 
           {/* Tablet/Kasa: tek-ekran blueprint — kat'taki bölgeler komşu odalar
@@ -1430,6 +1462,95 @@ function SalonMasa({
         }`}
       >
         <MasaKart masa={masa} now={now} vurgulu={vurgulu} bekleyen={bekleyen} />
+      </div>
+    </div>
+  );
+}
+
+// Mobil kroki: TEK bölgeyi kendi yerleşiminde (masaların x/y'si) çizer; bölge
+// kutusunu kapsayıcı genişliğine ölçekler → telefonda okunur, hangi masanın
+// hangi bölgeye ait olduğu net (her bölge kendi başlığı + krokisiyle alt alta).
+// Sürükleme YOK (dnd-kit gerekmez, dokunmayla kaydırmayı bozmaz) — sadece dokun-aç.
+function MobilBolgeKroki({
+  bolge,
+  now,
+  vurgu,
+  bekleyen,
+  onTikla,
+}: {
+  bolge: BolgeOzet;
+  now: number;
+  vurgu: Set<number>;
+  bekleyen: number | null;
+  onTikla: (m: MasaOzet) => void;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [genislik, setGenislik] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const oku = () => setGenislik(el.clientWidth);
+    oku();
+    const ro = new ResizeObserver(oku);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const kutu = odaBoyut({ odaW: 0, odaH: 0 }, bolge.masalar);
+  // Genişliğe sığdır; küçük bölgeyi aşırı büyütme (1.25 tavan).
+  const olcek = genislik > 0 && kutu.w > 0 ? Math.min(genislik / kutu.w, 1.25) : 0;
+  const masaSayisi = bolge.masalar.filter((m) => m.tip === 'masa').length;
+
+  return (
+    <div className="mb-6 last:mb-0">
+      <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-sky-300/60">
+        {bolge.ad}
+        <span className="text-slate-500">· {masaSayisi}</span>
+      </div>
+      <div ref={ref} className="w-full">
+        {olcek > 0 && (
+          <div
+            className="relative mx-auto"
+            style={{ width: kutu.w * olcek, height: kutu.h * olcek }}
+          >
+            <div
+              className="absolute left-0 top-0"
+              style={{
+                width: kutu.w,
+                height: kutu.h,
+                transform: `scale(${olcek})`,
+                transformOrigin: 'top left',
+              }}
+            >
+              {bolge.masalar.map((m) => {
+                const b = masaBoyut(m);
+                return m.tip !== 'masa' ? (
+                  <div
+                    key={m.id}
+                    className="absolute"
+                    style={{ left: m.x, top: m.y, width: b.w, height: b.h }}
+                  >
+                    <SabitEleman masa={m} />
+                  </div>
+                ) : (
+                  <button
+                    key={m.id}
+                    onClick={() => onTikla(m)}
+                    className="absolute"
+                    style={{ left: m.x, top: m.y, width: b.w, height: b.h }}
+                  >
+                    <MasaKart
+                      masa={m}
+                      now={now}
+                      vurgulu={vurgu.has(m.id)}
+                      bekleyen={bekleyen === m.id}
+                    />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
