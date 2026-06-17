@@ -21,7 +21,14 @@ import {
   type DragEndEvent,
   type DragMoveEvent,
 } from '@dnd-kit/core';
-import type { BolgeOzet, GelalOzet, MasaOzet, MasaTip, SalonOzet } from '@/lib/types';
+import type {
+  AdisyonOzet,
+  BolgeOzet,
+  GelalOzet,
+  MasaOzet,
+  MasaTip,
+  SalonOzet,
+} from '@/lib/types';
 import { MasaKart } from '@/components/MasaKart';
 import { SabitEleman } from '@/components/SabitEleman';
 import { Yukleniyor } from '@/components/Yukleniyor';
@@ -122,20 +129,60 @@ export function SalonClient({ initial }: { initial: SalonOzet | null }) {
   const [hedefMod, setHedefMod] = useState<HedefMod | null>(null);
   const [ekleAcik, setEkleAcik] = useState(false);
   const [olcek, setOlcek] = useState(1);
-  // Mobil görünüm: 'kroki' = bölge bölge ölçeklenmiş yerleşim (varsayılan),
-  // 'liste' = bölgeye göre gruplu kart ızgarası. Masaüstü her zaman tam-kat kroki.
-  const [mobilMod, setMobilMod] = useState<'kroki' | 'liste'>('kroki');
+  // Mobil görünüm:
+  //   'kroki' = bölge bölge ölçeklenmiş gerçek yerleşim (mini-harita, varsayılan),
+  //   'bant'  = masaların dikey konumuna göre bantlanmış okunur kart ızgarası,
+  //   'liste' = bölgeye göre düz gruplu kart ızgarası.
+  // Masaüstü her zaman tam-kat kroki.
+  const [mobilMod, setMobilMod] = useState<'kroki' | 'bant' | 'liste'>('kroki');
   const surukleRef = useRef(false);
   const kapsayiciRef = useRef<HTMLDivElement | null>(null);
   const router = useRouter();
   const now = useNow(20000);
+
+  // Salona dönüşte: az önce düzenlenen masanın snapshot tutarı sunucuya TAM
+  // yazılana kadar (arka plan kuyruğu birkaç yüz ms sürer) ara refetch'ler bu
+  // masayı DB'nin yarım tutarına ÇEKMESİN — yoksa tutar 100·200·300·400 diye
+  // "geriden" tırmanır. DB pin değerine ulaşınca ya da süre dolunca bırakılır.
+  const pinRef = useRef<{ masaId: number; ozet: AdisyonOzet; bitis: number } | null>(
+    null
+  );
+
+  // Taze salon verisine pin'i uygula: pinli masa DB'de henüz toplama ulaşmadıysa
+  // o masayı snapshot tutarıyla koru; ulaştıysa (veya süre dolduysa) pini bırak.
+  const pinUygula = useCallback((gelen: SalonOzet): SalonOzet => {
+    const pin = pinRef.current;
+    if (!pin) return gelen;
+    if (Date.now() > pin.bitis) {
+      pinRef.current = null;
+      return gelen;
+    }
+    const gelenMasa = gelen.bolgeler
+      .flatMap((b) => b.masalar)
+      .find((m) => m.id === pin.masaId);
+    // DB yetişti (toplam pin değerine ulaştı) → pini bırak, taze veriyi göster.
+    if ((gelenMasa?.adisyon?.toplam ?? 0) >= pin.ozet.toplam - 0.001) {
+      pinRef.current = null;
+      return gelen;
+    }
+    // Henüz yetişmedi → yalnız bu masayı snapshot değeriyle göster (diğerleri taze).
+    return {
+      ...gelen,
+      bolgeler: gelen.bolgeler.map((b) => ({
+        ...b,
+        masalar: b.masalar.map((m) =>
+          m.id === pin.masaId ? { ...m, adisyon: pin.ozet, durum: 'dolu' } : m
+        ),
+      })),
+    };
+  }, []);
 
   const refetch = useCallback(async () => {
     setYenileniyor(true);
     try {
       const res = await fetch('/api/salon', { cache: 'no-store' });
       if (res.ok) {
-        setData(await res.json());
+        setData(pinUygula(await res.json()));
         setHazir(true);
         setTaze(true);
       }
@@ -144,7 +191,7 @@ export function SalonClient({ initial }: { initial: SalonOzet | null }) {
     } finally {
       setYenileniyor(false);
     }
-  }, []);
+  }, [pinUygula]);
 
   // "Menüyü Senkronize Et": paket sistemden menüyü çekip DB'yi günceller.
   // Açık adisyon sayfaları menüyü SSR'da okuduğundan, başarı sonrası router
@@ -191,16 +238,22 @@ export function SalonClient({ initial }: { initial: SalonOzet | null }) {
   // olurdu. Tek seferlik bilinçli senkron; cascading-render uyarısı kapalı.
   /* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
   useEffect(() => {
-    if (!initial) {
-      const snap = snapshotOku();
-      if (snap) {
-        setData(snap);
-        setHazir(true);
+    const snap = initial ? null : snapshotOku();
+    if (snap) {
+      setData(snap);
+      setHazir(true);
+    }
+    // Masa ekranından güncellenmiş bir masa ile döndüysek o masayı parlat ve
+    // (snapshot tutarı varsa) arka plan yazımı DB'ye işleyene dek pinle — taze
+    // refetch/Pusher onu yarım tutara geri çekip "geriden tırmandırmasın".
+    const v = vurguOku();
+    if (v != null) {
+      vurgula(v);
+      const m = snap?.bolgeler.flatMap((b) => b.masalar).find((mm) => mm.id === v);
+      if (m?.adisyon) {
+        pinRef.current = { masaId: v, ozet: m.adisyon, bitis: Date.now() + 4000 };
       }
     }
-    // Masa ekranından güncellenmiş bir masa ile döndüysek o masayı parlat.
-    const v = vurguOku();
-    if (v != null) vurgula(v);
     refetch();
   }, []);
   /* eslint-enable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
@@ -234,6 +287,18 @@ export function SalonClient({ initial }: { initial: SalonOzet | null }) {
     }
   }, [router, gelalBekleyen]);
 
+  // Pusher refetch'ini debounce et: hızlı ürün eklemede her POST ayrı OLAY_MASA
+  // yayar; her birine tam salon (≈6 DB sorgusu) çekmek yerine patlama dinince
+  // TEK kez çek. Vurgu (parlama) anında, refetch geriden tek seferde.
+  const refetchBeklet = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refetchGecikmeli = useCallback(() => {
+    if (refetchBeklet.current) clearTimeout(refetchBeklet.current);
+    refetchBeklet.current = setTimeout(() => {
+      refetchBeklet.current = null;
+      refetch();
+    }, 350);
+  }, [refetch]);
+
   // Anlık senkron (Pusher kuruluysa)
   useEffect(() => {
     const pc = pusherClient;
@@ -241,15 +306,16 @@ export function SalonClient({ initial }: { initial: SalonOzet | null }) {
     const ch = pc.subscribe(SALON_KANAL);
     const onMasa = (p: { masaId?: number }) => {
       if (typeof p?.masaId === 'number') vurgula(p.masaId);
-      refetch();
+      refetchGecikmeli();
     };
     ch.bind(OLAY_MASA, onMasa);
     ch.bind(OLAY_ADISYON_KAPANDI, onMasa);
     return () => {
       ch.unbind_all();
       pc.unsubscribe(SALON_KANAL);
+      if (refetchBeklet.current) clearTimeout(refetchBeklet.current);
     };
-  }, [refetch, vurgula]);
+  }, [refetchGecikmeli, vurgula]);
 
   useEffect(() => {
     const onFocus = () => refetch();
@@ -807,10 +873,16 @@ export function SalonClient({ initial }: { initial: SalonOzet | null }) {
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
-          {/* Mobil: Kroki / Liste anahtarı (md altı). Kroki = bölge bölge
-              ölçeklenmiş yerleşim; Liste = bölgeye göre gruplu kart ızgarası. */}
+          {/* Mobil görünüm anahtarı (md altı): Kroki = gerçek ölçekli mini-harita;
+              Bant = dikey konuma göre bantlanmış okunur ızgara; Liste = düz ızgara. */}
           <div className="flex shrink-0 items-center gap-1 border-b border-slate-800 px-3 py-1.5 md:hidden">
-            {(['kroki', 'liste'] as const).map((m) => (
+            {(
+              [
+                { m: 'kroki', label: '🗺 Kroki' },
+                { m: 'bant', label: '▦ Bant' },
+                { m: 'liste', label: '☰ Liste' },
+              ] as const
+            ).map(({ m, label }) => (
               <button
                 key={m}
                 onClick={() => setMobilMod(m)}
@@ -820,25 +892,37 @@ export function SalonClient({ initial }: { initial: SalonOzet | null }) {
                     : 'text-slate-300 hover:bg-slate-800'
                 }`}
               >
-                {m === 'kroki' ? '🗺 Kroki' : '☰ Liste'}
+                {label}
               </button>
             ))}
           </div>
 
           {/* Telefon içeriği */}
           <div className="pb-safe min-h-0 flex-1 overflow-auto p-4 md:hidden">
-            {mobilMod === 'kroki'
-              ? gosterilenBolgeler.map((b) => (
-                  <MobilBolgeKroki
-                    key={b.id}
-                    bolge={b}
-                    now={now}
-                    vurgu={vurgu}
-                    bekleyen={bekleyenId}
-                    onTikla={masaTikla}
-                  />
-                ))
-              : gosterilenBolgeler.map((b) => (
+            {mobilMod === 'kroki' ? (
+              gosterilenBolgeler.map((b) => (
+                <MobilBolgeHarita
+                  key={b.id}
+                  bolge={b}
+                  now={now}
+                  vurgu={vurgu}
+                  bekleyen={bekleyenId}
+                  onTikla={masaTikla}
+                />
+              ))
+            ) : mobilMod === 'bant' ? (
+              gosterilenBolgeler.map((b) => (
+                <MobilBolgeKroki
+                  key={b.id}
+                  bolge={b}
+                  now={now}
+                  vurgu={vurgu}
+                  bekleyen={bekleyenId}
+                  onTikla={masaTikla}
+                />
+              ))
+            ) : (
+              gosterilenBolgeler.map((b) => (
                   <div key={b.id} className="mb-5 last:mb-0">
                     {gosterilenBolgeler.length > 1 && (
                       <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-sky-300/60">
@@ -869,7 +953,8 @@ export function SalonClient({ initial }: { initial: SalonOzet | null }) {
                       )}
                     </div>
                   </div>
-                ))}
+                ))
+            )}
           </div>
 
           {/* Tablet/Kasa: tek-ekran blueprint — kat'taki bölgeler komşu odalar
@@ -1467,11 +1552,98 @@ function SalonMasa({
   );
 }
 
-// Mobil kroki: TEK bölgeyi kendi yerleşiminde (masaların x/y'si) çizer; bölge
-// kutusunu kapsayıcı genişliğine ölçekler → telefonda okunur, hangi masanın
-// hangi bölgeye ait olduğu net (her bölge kendi başlığı + krokisiyle alt alta).
-// Sürükleme YOK (dnd-kit gerekmez, dokunmayla kaydırmayı bozmaz) — sadece dokun-aç.
+// Masanın footprint'inin dikey merkezi (banta kümeleme için).
+function yMerkez(m: MasaOzet): number {
+  return m.y + masaBoyut(m).h / 2;
+}
+
+// Mobil kroki bant ızgarası: bir bölgenin masalarını krokideki dikey
+// konumlarına göre yatay BANTLARA (üst sıra / orta / alt) kümeler. Aynı satır
+// sayılacak dikey yakınlık eşiği ~70px (tipik masa footprint'i ~110px, satır
+// aralığı bundan büyük). Plan tek parça küçültülmez → her masa tam boy okunur,
+// ama "hangi masa nerede" mekânsal sırası korunur (bant: y, içinde: x).
+const BANT_ESIK = 70;
+function bantlaraBol(masalar: MasaOzet[]): MasaOzet[][] {
+  const sadeMasa = masalar.filter((m) => m.tip === 'masa');
+  if (sadeMasa.length === 0) return [];
+  const sirali = [...sadeMasa].sort((a, b) => yMerkez(a) - yMerkez(b));
+  const bantlar: { anchor: number; items: MasaOzet[] }[] = [];
+  for (const m of sirali) {
+    const yc = yMerkez(m);
+    const son = bantlar[bantlar.length - 1];
+    if (son && yc - son.anchor <= BANT_ESIK) son.items.push(m);
+    else bantlar.push({ anchor: yc, items: [m] });
+  }
+  // Bant içinde soldan sağa.
+  return bantlar.map((b) => b.items.sort((a, c) => a.x - c.x));
+}
+
+// Mobil kroki: TEK bölgeyi okunur kart ızgarası olarak çizer. Masalar krokideki
+// dikey konumlarına göre bantlara kümelenir (mekânsal sıra korunur), her masa
+// MasaKart ile tam boy gösterilir (durum dili: boş/dolu/kısmi/2sa+ nabız).
+// Plan artık tek parça küçültülmez → telefonda yazı/tutar okunur kalır.
+// Sürükleme YOK — sadece dokun-aç; dokunmayla kaydırmayı bozmaz.
 function MobilBolgeKroki({
+  bolge,
+  now,
+  vurgu,
+  bekleyen,
+  onTikla,
+}: {
+  bolge: BolgeOzet;
+  now: number;
+  vurgu: Set<number>;
+  bekleyen: number | null;
+  onTikla: (m: MasaOzet) => void;
+}) {
+  const bantlar = useMemo(() => bantlaraBol(bolge.masalar), [bolge.masalar]);
+  const masalar = useMemo(
+    () => bolge.masalar.filter((m) => m.tip === 'masa'),
+    [bolge.masalar]
+  );
+  const dolu = masalar.filter((m) => !!m.adisyon).length;
+  const bos = masalar.length - dolu;
+
+  return (
+    <div className="mb-6 last:mb-0">
+      {/* Bölge başlığı: ad · ince çizgi · boş/dolu sayımı */}
+      <div className="mb-3 flex items-center gap-3">
+        <span className="text-xs font-extrabold uppercase tracking-[0.2em] text-sky-200/80">
+          {bolge.ad}
+        </span>
+        <span className="h-px flex-1 bg-linear-to-r from-sky-400/30 to-transparent" />
+        <span className="flex shrink-0 items-center gap-2 text-[11px] font-bold">
+          <span className="text-emerald-300/90">{bos} boş</span>
+          <span className="text-amber-300/90">{dolu} dolu</span>
+        </span>
+      </div>
+
+      {/* Bantlar: her biri ayrı satır ızgarası (aralarındaki boşluk = farklı sıra) */}
+      <div className="flex flex-col gap-3.5">
+        {bantlar.map((bant, i) => (
+          <div key={i} className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+            {bant.map((m) => (
+              <button key={m.id} onClick={() => onTikla(m)} className="h-26 text-left">
+                <MasaKart
+                  masa={m}
+                  now={now}
+                  vurgulu={vurgu.has(m.id)}
+                  bekleyen={bekleyen === m.id}
+                />
+              </button>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Mobil harita: TEK bölgeyi kendi gerçek yerleşiminde (masaların x/y'si) çizer;
+// bölge kutusunu kapsayıcı genişliğine ölçekler → gerçek planın aynısı, telefona
+// sığar. "Hangi masa fiziksel olarak nerede" tam korunur (sabit elemanlar dahil).
+// Sürükleme YOK (dnd-kit gerekmez, dokunmayla kaydırmayı bozmaz) — sadece dokun-aç.
+function MobilBolgeHarita({
   bolge,
   now,
   vurgu,
