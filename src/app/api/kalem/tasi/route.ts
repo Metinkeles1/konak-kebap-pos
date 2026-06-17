@@ -25,7 +25,9 @@ export async function POST(req: Request) {
     if (kalemler.length === 0) throw new Error('Kalem bulunamadı');
     const kaynakAdisyonIds = [...new Set(kalemler.map((k) => k.adisyonId))];
 
-    // Hedef açık adisyon (yoksa aç)
+    // Hedef açık adisyon (yoksa aç). /api/adisyon/ac ile AYNI masa kilidi → aynı
+    // masada eşzamanlı "aç" + "kalem taşı" iki açık adisyon oluşturamaz.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${hedefMasaId}::bigint)`;
     let hedef = await tx.adisyon.findFirst({
       where: { masaId: hedefMasaId, durum: 'acik' },
       select: { id: true },

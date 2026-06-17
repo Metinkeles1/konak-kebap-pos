@@ -9,7 +9,6 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type {
   AdisyonDetay,
@@ -236,6 +235,13 @@ export function AdisyonClient({
 
   // Bir arka plan yazımı başarısız olduğunda true → uyarı banner'ı göster.
   const [kayitHatasi, setKayitHatasi] = useState(false);
+  // await sonrası SENKRON okunabilsin diye ref kopyası (ödeme/taşıma drain'inden
+  // sonra "yazım başarısız mı" kontrolü için — eksik hesap kapatmayı engeller).
+  const kayitHatasiRef = useRef(false);
+  const kayitBasarisiz = useCallback(() => {
+    kayitHatasiRef.current = true;
+    setKayitHatasi(true);
+  }, []);
 
   // SUNUCU GERÇEĞİYLE EŞİTLEME: birleştir/kalem-taşı/ödeme-hatası veya "Yenile"
   // router.refresh ile detay'ı tazeleyince local state'i ona göre sıfırla.
@@ -256,13 +262,19 @@ export function AdisyonClient({
 
   // hizliEkle'nin kimliğini sabit tutabilmek için sepeti ref'ten okuruz (yoksa
   // her sepet değişiminde callback kimliği değişir, ürün ızgarası memo'su bozulur).
-  // Ref'leri effect'te senkronlarız; handler'lar effect'ten sonra çalışır → güncel.
+  // Ref'leri effect'te senkronlarız; gerçek (parmak) dokunuşlar arası effect çalışır.
+  // kayitHatasiRef ayrıca kayitBasarisiz()'da ANINDA yazılır → drain sonrası okunur.
   const kalemlerRef = useRef(optimistikKalemler);
   const adisyonIdRef = useRef(adisyonId);
   useEffect(() => {
     kalemlerRef.current = optimistikKalemler;
     adisyonIdRef.current = adisyonId;
+    kayitHatasiRef.current = kayitHatasi;
   });
+
+  // Optimistik (henüz kaydedilmemiş) satırlar için MONOTON azalan geçici id.
+  // -Date.now() yerine sayaç: aynı milisaniyede iki ürün eklense de çakışmaz.
+  const geciciIdRef = useRef(-1);
 
   // Optimistik toplam / KALAN (anında güncellensin). İkram toplama girmez;
   // indirim toplamdan düşer (yüzdeyse optimistik toplam üstünden anlık kayar).
@@ -280,6 +292,20 @@ export function AdisyonClient({
   const optKalan =
     optToplam - optIndirim - optKalemOdenen - detay.odenenTutar - optEkstraOdenen;
   const kalemAdet = optimistikKalemler.reduce((s, k) => s + k.adet, 0);
+
+  // Fiş, ekrandaki OPTİMİSTİK sepeti göstersin (eski sunucu detayını değil) — yeni
+  // eklenen ürünler anında fişe yansısın. "Ödenen" optKalan ile tutarlı türetilir.
+  const fisOdenen = optKalemOdenen + detay.odenenTutar + optEkstraOdenen;
+  const fisDetay: AdisyonDetay = {
+    ...detay,
+    kalemler: optimistikKalemler,
+    toplam: optToplam,
+    indirim: optIndirim,
+    indirimTip: optIndirimDurum.tip,
+    indirimDeger: optIndirimDurum.deger,
+    tahsilatToplam: fisOdenen,
+    kalan: Math.max(0, optKalan),
+  };
 
   // Menü kartlarında "sepette kaç tane" rozeti için: urunId → toplam adet.
   // Sadece sepet değişince yeniden hesaplanır (modal vb. ızgarayı render etmesin).
@@ -378,6 +404,18 @@ export function AdisyonClient({
     return p;
   }, []);
 
+  // Bekleyen TÜM kalem yazımları bitene kadar bekler. Ödeme / masa-taşı / kalem-taşı
+  // / birleştir / salona-dön ÖNCESİ çağrılır → sunucu hep TAM kalem setini görür,
+  // böylece "hesabı erken kapatma" yüzünden sipariş İKİYE bölünmez. Drain sırasında
+  // yeni iş eklenirse (ref değişirse) onu da bekler.
+  const kuyrukBitir = useCallback(async () => {
+    let p: Promise<void>;
+    do {
+      p = ekleKuyrukRef.current;
+      await p.catch(() => {});
+    } while (p !== ekleKuyrukRef.current);
+  }, []);
+
   // Ürüne dokun → ANINDA sepete (optimistik). Aynı sade ürüne tekrar dokunulursa
   // yeni satır yerine adet artar; gerçek adet artışını sunucu atomik yapar.
   const hizliEkle = useCallback((urun: Urun) => {
@@ -395,7 +433,7 @@ export function AdisyonClient({
         !k.kaynakMasa
     );
 
-    const geciciId = -Date.now();
+    const geciciId = geciciIdRef.current--;
     // Local sepet ANINDA ve KALICI güncellenir (sahibi istemci).
     if (mevcut) {
       optimistikUygula({
@@ -445,10 +483,10 @@ export function AdisyonClient({
           optimistikUygula({ tip: 'guncelle', id: geciciId, veri: { id: j.kalemId } });
         }
       } catch {
-        setKayitHatasi(true);
+        kayitBasarisiz();
       }
     });
-  }, [ensureAdisyon, kuyrukla, optimistikUygula]);
+  }, [ensureAdisyon, kuyrukla, optimistikUygula, kayitBasarisiz]);
 
   // Sepet kalemine dokun → o kalemi düzenle (adet / yarım / not). Optimistik
   // satır (id<0, henüz kaydedilmemiş) ve ödenmiş kalem düzenlenemez.
@@ -505,7 +543,7 @@ export function AdisyonClient({
           adisyonIdRef.current = null;
         }
       } catch {
-        setKayitHatasi(true);
+        kayitBasarisiz();
       }
     });
   }
@@ -541,7 +579,7 @@ export function AdisyonClient({
           adisyonIdRef.current = null;
         }
       } catch {
-        setKayitHatasi(true);
+        kayitBasarisiz();
       }
     })();
   }
@@ -577,7 +615,7 @@ export function AdisyonClient({
           adisyonIdRef.current = null;
         }
       } catch {
-        setKayitHatasi(true);
+        kayitBasarisiz();
       }
     });
   }
@@ -607,6 +645,12 @@ export function AdisyonClient({
     setIslem(true);
     setHata(null);
     try {
+      // Önce bekleyen kalem yazımları bitsin → taşıma/birleştirme TAM kalem setiyle.
+      await kuyrukBitir();
+      if (kayitHatasiRef.current) {
+        setHata('Bazı ürünler kaydedilemedi — üstteki "Yenile" ile eşitle, sonra tekrar dene.');
+        return;
+      }
       const res = await fetch(path, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -638,9 +682,17 @@ export function AdisyonClient({
     setHata(null);
     setModal(null);
     setSecili(new Set());
-    optimistik();
     void (async () => {
+      setIslem(true);
       try {
+        // KRİTİK: ödeme/kapatma öncesi bekleyen kalem yazımlarını bitir. Aksi halde
+        // sunucu hesabı EKSİK kalemle hesaplayıp kısmi kapatır → sipariş ikiye bölünür.
+        await kuyrukBitir();
+        if (kayitHatasiRef.current) {
+          setHata('Bazı ürünler kaydedilemedi — üstteki "Yenile" ile eşitle, sonra tekrar dene.');
+          return;
+        }
+        optimistik(); // KALAN'ı anında düş (kalemler artık sunucuda kesin)
         const res = await fetch(path, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
@@ -656,6 +708,8 @@ export function AdisyonClient({
       } catch {
         setHata('Bağlantı hatası');
         router.refresh();
+      } finally {
+        setIslem(false);
       }
     })();
   }
@@ -740,13 +794,20 @@ export function AdisyonClient({
       {/* SOL — Menü */}
       <div className="flex min-h-0 flex-1 flex-col border-b border-slate-800 md:border-b-0 md:border-r">
         <header className="flex shrink-0 items-center gap-3 border-b border-slate-800 bg-slate-900/60 px-4 py-3">
-          <Link
-            href="/adisyon"
-            onClick={salonOzetiYaz}
-            className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
+          <button
+            onClick={async () => {
+              // Ayrılmadan önce bekleyen kalem yazımlarını bitir; bir şey kaydedilemediyse
+              // ekranda kal ki uyarı banner'ı görünsün (sessiz veri kaybı olmasın).
+              await kuyrukBitir();
+              if (kayitHatasiRef.current) return;
+              salonOzetiYaz();
+              router.push('/adisyon');
+            }}
+            disabled={islem}
+            className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-50"
           >
             ← Salon
-          </Link>
+          </button>
           <div className="flex items-baseline gap-2">
             <span className="text-lg font-bold">{detay.masaAd}</span>
             {detay.acilis && (
@@ -1451,7 +1512,7 @@ export function AdisyonClient({
       {modal === 'fis' && (
         <ModalKabuk baslik="Hesap Fişi" onClose={() => setModal(null)}>
           <div className="flex flex-col items-center gap-3">
-            <AdisyonFis detay={detay} />
+            <AdisyonFis detay={fisDetay} />
             <button
               onClick={() => window.print()}
               className="w-full rounded-lg bg-emerald-600 py-2.5 font-semibold text-white hover:bg-emerald-500"
@@ -1504,8 +1565,10 @@ function KalemGrubu({
               <input
                 type="checkbox"
                 checked={secili.has(k.id)}
+                disabled={k.id < 0}
                 onChange={() => onToggle(k.id)}
-                className="h-4 w-4 shrink-0 accent-emerald-500"
+                title={k.id < 0 ? 'Kaydediliyor…' : undefined}
+                className="h-4 w-4 shrink-0 accent-emerald-500 disabled:opacity-40"
               />
             )}
             {/* Küçük ürün görseli */}
