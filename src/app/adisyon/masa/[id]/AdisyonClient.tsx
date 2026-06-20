@@ -23,9 +23,15 @@ import { gecenSure, para } from '@/lib/format';
 import { ODEME_ARACLARI, YEMEK_KARTLARI, type OdemeArac } from '@/lib/odeme';
 import { useNow } from '@/lib/useNow';
 import { AdisyonFis } from '@/components/receipt/AdisyonFis';
+import { MutfakFisi } from '@/components/receipt/MutfakFisi';
+import {
+  mutfakGruplari,
+  tekliGrupSecenekleri,
+  TUM_NOT_SECENEKLERI,
+} from '@/lib/mutfak';
 import { Ikon, type IkonAd } from '@/components/PosIkon';
 
-type Modal = null | 'bol' | 'masa' | 'kalemTasi' | 'fis' | 'indirim';
+type Modal = null | 'bol' | 'masa' | 'kalemTasi' | 'fis' | 'mutfak' | 'indirim';
 // Ürün bazlı bölme zaten "hesaptan seç + Öde" ile yapılır; Böl modalı yalnızca
 // modal gerektiren iki yöntem içindir.
 type BolYontem = 'esit' | 'serbest';
@@ -46,23 +52,15 @@ function notAyikla(not: string | null): { notlar: Set<string>; serbest: string }
   const notlar = new Set<string>();
   const serbest: string[] = [];
   for (const p of parcalar) {
-    if (NOT_SECENEK.includes(p)) notlar.add(p);
+    if (TUM_NOT_SECENEKLERI.includes(p)) notlar.add(p);
     else serbest.push(p);
   }
   return { notlar, serbest: serbest.join(', ') };
 }
 
-// Kebapçı için hazır not çipleri — serbest not da eklenebilir.
-const NOT_SECENEK = [
-  'Acısız',
-  'Az acılı',
-  'Acılı',
-  'Soğansız',
-  'Az pişmiş',
-  'İyi pişmiş',
-  'Ekstra ekmek',
-  'Servis sonra',
-];
+// Hazır pişirme tercihi çipleri artık kategori bazlı (src/lib/mutfak.ts):
+// kebap/lahmacun'a özel gruplar düzenle popover'ında ürünün kategorisine göre
+// gösterilir; serbest not da eklenebilir.
 
 // Ürün ızgarası: sepet/hesap state'i değişince GEREKSİZ yere render olmasın diye
 // memoize. onEkle stabil (useCallback) ve urunler referansı sabit olduğundan
@@ -627,11 +625,19 @@ export function AdisyonClient({
     kalemSil(k);
   }
 
+  // Tercih çipi aç/kapat. Tek-seç (Pişirme/Acı gibi) grupta yeni seçenek
+  // eklenirken aynı grubun diğer seçeneği otomatik kalkar (radio davranışı).
   function notCevir(n: string) {
+    const kategori = duzenle ? urunMap.get(duzenle.urunId)?.category : undefined;
     setPNotlar((s) => {
       const yeni = new Set(s);
-      if (yeni.has(n)) yeni.delete(n);
-      else yeni.add(n);
+      if (yeni.has(n)) {
+        yeni.delete(n);
+      } else {
+        const grup = tekliGrupSecenekleri(kategori, n);
+        if (grup) for (const o of grup) yeni.delete(o); // gruptaki eski seçimi temizle
+        yeni.add(n);
+      }
       return yeni;
     });
   }
@@ -891,13 +897,22 @@ export function AdisyonClient({
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {optimistikKalemler.length > 0 && (
-              <button
-                onClick={() => setModal('fis')}
-                className="flex items-center gap-1.5 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:border-slate-500 hover:bg-slate-800 hover:text-slate-100"
-              >
-                <Ikon ad="fis" className="h-4 w-4" />
-                Fiş
-              </button>
+              <>
+                <button
+                  onClick={() => setModal('mutfak')}
+                  className="flex items-center gap-1.5 rounded-lg border border-orange-500/40 px-2.5 py-1.5 text-xs font-semibold text-orange-300 transition-colors hover:border-orange-400 hover:bg-orange-500/10"
+                >
+                  <span className="text-sm leading-none">🍢</span>
+                  Mutfak
+                </button>
+                <button
+                  onClick={() => setModal('fis')}
+                  className="flex items-center gap-1.5 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:border-slate-500 hover:bg-slate-800 hover:text-slate-100"
+                >
+                  <Ikon ad="fis" className="h-4 w-4" />
+                  Fiş
+                </button>
+              </>
             )}
             {/* Mobil: modalı kapat (masaüstünde panel sabit) */}
             <button
@@ -1392,33 +1407,44 @@ export function AdisyonClient({
             <span>{pIkram ? 'Açık ✓' : 'Kapalı'}</span>
           </button>
 
-          {/* Not çipleri */}
-          <div className="mt-4">
-            <div className="mb-1.5 text-sm text-slate-400">Not</div>
-            <div className="flex flex-wrap gap-1.5">
-              {NOT_SECENEK.map((n) => {
-                const sec = pNotlar.has(n);
-                return (
-                  <button
-                    key={n}
-                    onClick={() => notCevir(n)}
-                    className={`rounded-full px-3 py-1 text-xs font-medium ${
-                      sec
-                        ? 'bg-amber-400/20 text-amber-200 ring-1 ring-amber-400/50'
-                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    {n}
-                    {sec && ' ✓'}
-                  </button>
-                );
-              })}
-            </div>
+          {/* Mutfak tercihleri — ürünün kategorisine göre gruplar (kebap/lahmacun…) */}
+          <div className="mt-4 space-y-3">
+            {mutfakGruplari(urun?.category).map((grup) => (
+              <div key={grup.baslik}>
+                <div className="mb-1.5 flex items-center gap-2 text-sm text-slate-400">
+                  {grup.baslik}
+                  {grup.tekli && (
+                    <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                      tek seç
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {grup.secenekler.map((n) => {
+                    const sec = pNotlar.has(n);
+                    return (
+                      <button
+                        key={n}
+                        onClick={() => notCevir(n)}
+                        className={`rounded-full px-3 py-1 text-xs font-medium ${
+                          sec
+                            ? 'bg-amber-400/20 text-amber-200 ring-1 ring-amber-400/50'
+                            : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                        }`}
+                      >
+                        {n}
+                        {sec && ' ✓'}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
             <input
               value={pSerbest}
               onChange={(e) => setPSerbest(e.target.value)}
               placeholder="Serbest not (örn. ayran yerine kola)…"
-              className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-sky-400 focus:outline-none"
+              className="w-full rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-sky-400 focus:outline-none"
             />
           </div>
 
@@ -1518,6 +1544,24 @@ export function AdisyonClient({
               className="w-full rounded-lg bg-emerald-600 py-2.5 font-semibold text-white hover:bg-emerald-500"
             >
               🖨 Yazdır
+            </button>
+          </div>
+        </ModalKabuk>
+      )}
+
+      {/* MODAL: Mutfak fişi (istasyona göre bölünmüş — fiyatsız, pişirme tercihli) */}
+      {modal === 'mutfak' && (
+        <ModalKabuk baslik="Mutfak Fişi" onClose={() => setModal(null)}>
+          <div className="flex flex-col items-center gap-3">
+            <MutfakFisi
+              detay={fisDetay}
+              kategoriBul={(urunId) => urunMap.get(urunId)?.category}
+            />
+            <button
+              onClick={() => window.print()}
+              className="w-full rounded-lg bg-orange-600 py-2.5 font-semibold text-white hover:bg-orange-500"
+            >
+              🖨 Mutfağa Bas
             </button>
           </div>
         </ModalKabuk>
