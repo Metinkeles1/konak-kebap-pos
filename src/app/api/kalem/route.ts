@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { toplamYenidenHesapla } from '@/lib/hesap';
 import { tetikle } from '@/lib/pusher-server';
-import { SALON_KANAL, OLAY_MASA } from '@/lib/realtime';
+import { SALON_KANAL, OLAY_MASA, MUTFAK_KANAL, OLAY_MUTFAK } from '@/lib/realtime';
 
 // Adisyona kalem ekle. Yarım porsiyon = yarım fiyat (SETUP §8).
 export async function POST(req: Request) {
@@ -85,6 +85,7 @@ export async function POST(req: Request) {
   });
 
   await tetikle(SALON_KANAL, OLAY_MASA, { masaId: sonuc.masaId });
+  await tetikle(MUTFAK_KANAL, OLAY_MUTFAK, {}); // yeni/ek ürün mutfak ekranına düşsün
   // kalemId: istemci optimistik satırın geçici id'sini gerçek id ile değiştirir,
   // böylece yeni eklenen kalem refresh beklemeden düzenlenebilir/silinebilir olur.
   return NextResponse.json({ ok: true, kalemId: sonuc.kalemId });

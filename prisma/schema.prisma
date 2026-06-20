@@ -109,6 +109,12 @@ model AdisyonKalem {
   not        String?
   zaman      DateTime @default(now())
 
+  // Mutfak ekranı (KDS) aşaması — yalnız mutfağa giden kategoriler (kebap/lahmacun…)
+  // için anlamlı. "bekliyor" = hazırlanıyor, "hazir" = pişti/garson bekliyor,
+  // "alindi" = garson servise aldı (mutfak ekranından düşer).
+  mutfakDurum String    @default("bekliyor") // "bekliyor" | "hazir" | "alindi"
+  hazirZaman  DateTime? // "hazir" olduğu an — soğuma (servis bekleme) sayacı için
+
   // Kalem bazlı tahsilatta bu kalemi hangi ödeme kapadı — tahsilat geri
   // alınınca kalemi tekrar "acik" yapabilmek için (gün sonu/geçmiş düzenleme).
   // SetNull: tahsilat silinirse kalem silinmez, sadece bağı kopar (kalem geri açılır).

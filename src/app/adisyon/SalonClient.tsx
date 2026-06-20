@@ -46,6 +46,7 @@ import { snapshotOku, snapshotYaz, vurguOku } from '@/lib/salon-snapshot';
 import {
   OLAY_ADISYON_KAPANDI,
   OLAY_MASA,
+  OLAY_MUTFAK_HAZIR,
   pusherClient,
   SALON_KANAL,
 } from '@/lib/pusher-client';
@@ -299,6 +300,21 @@ export function SalonClient({ initial }: { initial: SalonOzet | null }) {
     }, 350);
   }, [refetch]);
 
+  // Mutfaktan "servise hazır" bildirimi (garson uyarısı — toast + çan + "Aldım").
+  const [mutfakHazir, setMutfakHazir] = useState<{ mesaj: string; adisyonId: number | null } | null>(null);
+  const mutfakHazirBeklet = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Garson "Aldım" → adisyonun mutfak kalemlerini servise alındı işaretle.
+  const mutfakTeslimAl = useCallback((adisyonId: number | null) => {
+    setMutfakHazir(null);
+    if (adisyonId == null) return;
+    void fetch('/api/mutfak/teslim', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ adisyonId }),
+    });
+  }, []);
+
   // Anlık senkron (Pusher kuruluysa)
   useEffect(() => {
     const pc = pusherClient;
@@ -308,12 +324,40 @@ export function SalonClient({ initial }: { initial: SalonOzet | null }) {
       if (typeof p?.masaId === 'number') vurgula(p.masaId);
       refetchGecikmeli();
     };
+    const onHazir = (p: { masaAd?: string | null; adisyonId?: number | null }) => {
+      const ad = p?.masaAd ?? null;
+      setMutfakHazir({
+        mesaj: ad ? `${ad} servise hazır` : 'Bir sipariş servise hazır',
+        adisyonId: typeof p?.adisyonId === 'number' ? p.adisyonId : null,
+      });
+      if (mutfakHazirBeklet.current) clearTimeout(mutfakHazirBeklet.current);
+      mutfakHazirBeklet.current = setTimeout(() => setMutfakHazir(null), 8000);
+      try {
+        const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        const ctx = new AC();
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = 'triangle';
+        o.frequency.value = 988;
+        g.gain.setValueAtTime(0.0001, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.5);
+        o.connect(g);
+        g.connect(ctx.destination);
+        o.start();
+        o.stop(ctx.currentTime + 0.52);
+      } catch {
+        /* ses yoksa sessiz geç */
+      }
+    };
     ch.bind(OLAY_MASA, onMasa);
     ch.bind(OLAY_ADISYON_KAPANDI, onMasa);
+    ch.bind(OLAY_MUTFAK_HAZIR, onHazir);
     return () => {
       ch.unbind_all();
       pc.unsubscribe(SALON_KANAL);
       if (refetchBeklet.current) clearTimeout(refetchBeklet.current);
+      if (mutfakHazirBeklet.current) clearTimeout(mutfakHazirBeklet.current);
     };
   }, [refetchGecikmeli, vurgula]);
 
@@ -700,6 +744,18 @@ export function SalonClient({ initial }: { initial: SalonOzet | null }) {
           <div className="animate-yukleme-cubuk h-full w-1/4 rounded-full bg-amber-400" />
         </div>
       )}
+      {/* Mutfaktan "servise hazır" bildirimi — garson uyarısı (üstte ortalı) */}
+      {mutfakHazir && (
+        <div className="fixed left-1/2 top-4 z-60 flex -translate-x-1/2 items-center gap-3 rounded-2xl border border-emerald-500/40 bg-slate-900 px-5 py-3 text-sm font-bold text-emerald-200 shadow-2xl">
+          <span className="text-base">🔔</span> {mutfakHazir.mesaj}
+          <button
+            onClick={() => mutfakTeslimAl(mutfakHazir.adisyonId)}
+            className="rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-extrabold text-emerald-950 hover:brightness-105"
+          >
+            Aldım
+          </button>
+        </div>
+      )}
       {/* Üst bar — mobil (garson) sade; md+ (kasa/tablet) tüm yönetim aksiyonları */}
       <header className="flex items-center justify-between gap-3 border-b border-slate-800 bg-slate-900/60 px-3 py-2.5 backdrop-blur sm:px-4 sm:py-3">
         <div className="flex min-w-0 items-baseline gap-2">
@@ -711,6 +767,13 @@ export function SalonClient({ initial }: { initial: SalonOzet | null }) {
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {/* Mutfak ekranı (KDS) — her boyutta erişilebilir (mutfak tableti) */}
+          <Link
+            href="/adisyon/mutfak"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-orange-500/40 px-2.5 py-1.5 text-sm font-semibold text-orange-300 hover:bg-orange-500/10 sm:px-3"
+          >
+            🔥<span className="hidden sm:inline">Mutfak</span>
+          </Link>
           {/* Geçmiş / Gün Sonu / Krokiyi Düzenle: yönetim — yalnız md+ (kasa) */}
           <Link
             href="/adisyon/gecmis"

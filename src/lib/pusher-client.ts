@@ -16,4 +16,12 @@ export const pusherClient =
     ? new PusherClient(KEY!, { cluster: CLUSTER! })
     : null;
 
-export { SALON_KANAL, OLAY_MASA, OLAY_ADISYON_KAPANDI } from './realtime';
+export {
+  SALON_KANAL,
+  OLAY_MASA,
+  OLAY_ADISYON_KAPANDI,
+  MUTFAK_KANAL,
+  OLAY_MUTFAK,
+  OLAY_MUTFAK_HAZIR,
+  OLAY_MUTFAK_IPTAL,
+} from './realtime';
