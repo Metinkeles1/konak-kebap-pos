@@ -34,6 +34,7 @@ export const KATEGORI_ISTASYON: Record<string, string> = {
   kilo: 'izgara',
   lahmacun: 'firin',
   pide: 'firin', // pideler fırından
+  tatli: 'firin', // tatlılar (künefe vb.) fırından — mutfakta görünür
   corba: 'ocak',
 };
 

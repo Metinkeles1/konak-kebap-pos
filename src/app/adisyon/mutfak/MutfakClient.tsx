@@ -24,10 +24,10 @@ type Baglanti = 'canli' | 'kopuk' | 'manuel';
 type Sira = 'bekleme' | 'servis';
 type Gorunum = 'masa' | 'sutun' | 'toplu';
 
-const IST_RENK: Record<string, { metin: string; nokta: string }> = {
-  izgara: { metin: 'text-orange-300', nokta: 'bg-orange-400' },
-  firin: { metin: 'text-fuchsia-300', nokta: 'bg-fuchsia-400' },
-  ocak: { metin: 'text-sky-300', nokta: 'bg-sky-400' },
+const IST_RENK: Record<string, { metin: string; nokta: string; rozet: string }> = {
+  izgara: { metin: 'text-orange-300', nokta: 'bg-orange-400', rozet: 'from-orange-500 to-red-600' },
+  firin: { metin: 'text-fuchsia-300', nokta: 'bg-fuchsia-400', rozet: 'from-fuchsia-500 to-purple-600' },
+  ocak: { metin: 'text-sky-300', nokta: 'bg-sky-400', rozet: 'from-sky-500 to-blue-600' },
 };
 
 function cipRenk(t: string): string {
@@ -403,6 +403,10 @@ export function MutfakClient({ initial }: { initial: MutfakSiparis[] }) {
   }, [siparisler, istasyonGecerli]);
 
   const acikSayi = siparisler.length;
+  // Kilitliyken tek istasyon var → "sütun" anlamsız; masa'ya düşür.
+  const aktifGorunum: Gorunum = kiosk && gorunum === 'sutun' ? 'masa' : gorunum;
+  // Kilitli istasyonda bekleyen toplam ürün adedi (özet zaten istasyon filtreli).
+  const bekleyenAdet = ozet.reduce((a, o) => a + o.adet, 0);
 
   const pillCls = (sec: boolean) =>
     `rounded-full border px-3.5 py-1.5 text-[13px] font-semibold transition-colors ${
@@ -410,7 +414,7 @@ export function MutfakClient({ initial }: { initial: MutfakSiparis[] }) {
     }`;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="flex h-full min-h-0 flex-col bg-slate-950 text-slate-100">
       <style>{`
         @keyframes mk-pulse { 50% { opacity:.4 } }
         @keyframes mk-new { 50% { box-shadow:0 0 0 1px rgba(96,165,250,.8),0 0 34px -6px rgba(96,165,250,.9) } }
@@ -420,8 +424,70 @@ export function MutfakClient({ initial }: { initial: MutfakSiparis[] }) {
         .mk-alert { animation: mk-alert 1s ease-in-out infinite; }
       `}</style>
 
-      {/* ÜST BAR */}
-      <header className="sticky top-0 z-20 border-b border-slate-800 bg-slate-950/85 px-4 py-3 backdrop-blur sm:px-6">
+      {/* KIOSK HEADER — istasyona kilitliyken sade, odaklı tepe (navbar yok).
+          Sadece istasyon kimliği, durum ve kilit-aç; mobil için tasarlandı. */}
+      {kiosk && (
+        <header className="relative z-20 shrink-0 border-b border-slate-800 bg-slate-950/90 px-4 py-3 backdrop-blur">
+          <div className="flex items-center gap-3">
+            <div
+              className={`grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-linear-to-br text-2xl shadow-lg ${IST_RENK[kiosk]?.rozet ?? ''}`}
+            >
+              {ISTASYONLAR[kiosk]?.ikon}
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h1 className="truncate text-xl font-black leading-none">{ISTASYONLAR[kiosk]?.ad}</h1>
+                <span className="shrink-0 rounded-md bg-slate-800 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                  🔒 kilitli
+                </span>
+              </div>
+              <div className="mt-1 flex items-center gap-1.5 text-xs font-semibold text-slate-500">
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    baglanti === 'canli' ? 'mk-dot bg-emerald-400' : baglanti === 'kopuk' ? 'bg-rose-400' : 'bg-slate-500'
+                  }`}
+                />
+                {acikSayi} masa · {bekleyenAdet} ürün bekliyor
+              </div>
+            </div>
+            <button
+              onClick={() => kioskAyarla(null)}
+              className="ml-auto flex h-11 shrink-0 items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900 px-3.5 text-sm font-bold text-slate-300 transition-transform active:scale-95"
+            >
+              🔓 Kilit
+            </button>
+          </div>
+          {/* Kompakt görünüm + büyüt — tek istasyonda sütun gereksiz, yalnız Masalar/Toplu */}
+          <div className="mt-3 flex items-center gap-2">
+            <div className="inline-flex flex-1 gap-1 rounded-xl border border-slate-800 bg-slate-900 p-1">
+              {([['masa', 'Masalar'], ['toplu', 'Toplu']] as const).map(([k, ad]) => (
+                <button
+                  key={k}
+                  onClick={() => setGorunum(k)}
+                  className={`flex-1 rounded-lg px-3 py-2 text-sm font-bold transition-colors ${
+                    aktifGorunum === k ? 'bg-amber-500 text-slate-900' : 'text-slate-400'
+                  }`}
+                >
+                  {ad}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={buyukCevir}
+              className={`h-10 shrink-0 rounded-xl border px-3.5 text-sm font-bold transition-colors ${
+                buyuk ? 'border-amber-400 text-amber-300' : 'border-slate-700 text-slate-400'
+              }`}
+              title="Uzaktan okuma için büyüt"
+            >
+              🔍
+            </button>
+          </div>
+        </header>
+      )}
+
+      {/* ÜST BAR — normal (istasyona kilitli değilken tüm araçlar) */}
+      {!kiosk && (
+      <header className="relative z-20 shrink-0 border-b border-slate-800 bg-slate-950/85 px-4 py-3 backdrop-blur sm:px-6">
         <div className="flex items-center gap-3">
           <Link
             href="/adisyon"
@@ -520,6 +586,7 @@ export function MutfakClient({ initial }: { initial: MutfakSiparis[] }) {
           </div>
         </div>
       </header>
+      )}
 
       {/* İPTAL UYARISI */}
       {iptalUyari && (
@@ -532,23 +599,9 @@ export function MutfakClient({ initial }: { initial: MutfakSiparis[] }) {
         </div>
       )}
 
-      {/* KIOSK BANDI */}
-      {kiosk && (
-        <div className="mx-4 mt-4 flex items-center gap-4 rounded-2xl border border-amber-500/30 bg-linear-to-r from-amber-500/10 to-orange-600/5 px-5 py-3.5 sm:mx-6">
-          <span className="text-2xl">{ISTASYONLAR[kiosk]?.ikon}</span>
-          <div>
-            <div className="text-lg font-extrabold">{ISTASYONLAR[kiosk]?.ad.toUpperCase()} İSTASYONU</div>
-            <div className="text-xs text-slate-400">Bu ekran yalnızca bu istasyonun işlerini gösterir.</div>
-          </div>
-          <button
-            onClick={() => kioskAyarla(null)}
-            className="ml-auto rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-bold hover:bg-slate-700"
-          >
-            Kilidi aç
-          </button>
-        </div>
-      )}
-
+      {/* SCROLL ALANI — flex-1 + min-h-0 + overflow-y-auto: içerik ekrandan uzun
+          olunca body değil bu kutu kayar (toplu/masa/sütun hepsi scroll olur). */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
       {/* BÜYÜTÜLEBİLİR İÇERİK (özet + tahta) */}
       <div style={buyuk ? { zoom: 1.18 } : undefined}>
         {/* ÖZET ŞERİDİ */}
@@ -570,7 +623,7 @@ export function MutfakClient({ initial }: { initial: MutfakSiparis[] }) {
 
         {/* TAHTA */}
         <main className="px-4 pb-20 pt-4 sm:px-6">
-          {gorunum === 'masa' &&
+          {aktifGorunum === 'masa' &&
             (gorunenSiparisler.length === 0 ? (
               <Bos />
             ) : (
@@ -589,7 +642,7 @@ export function MutfakClient({ initial }: { initial: MutfakSiparis[] }) {
               </div>
             ))}
 
-          {gorunum === 'sutun' &&
+          {aktifGorunum === 'sutun' &&
             (sutunlar.every((c) => c.siparisler.length === 0) ? (
               <Bos />
             ) : (
@@ -625,37 +678,41 @@ export function MutfakClient({ initial }: { initial: MutfakSiparis[] }) {
               </div>
             ))}
 
-          {gorunum === 'toplu' &&
+          {aktifGorunum === 'toplu' &&
             (topluListe.length === 0 ? (
               <Bos />
             ) : (
               <div>
-                <p className="mb-4 max-w-3xl text-[13px] text-slate-500">
+                <p className="mb-3 text-[13px] text-slate-500">
                   Usta görünümü — aynı ürün tüm masalardan toplanır, tek seferde hazırlanır.
                 </p>
-                <div className="flex max-w-3xl flex-col gap-3">
+                {/* Responsive grid: mobilde 1, tablette 2, geniş ekranda 3 kolon —
+                    kompakt kartlarla az scroll'da çok ürün görünür. */}
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
                   {topluListe.map((r) => (
                     <div
                       key={r.ad}
-                      className="flex flex-wrap items-center gap-5 rounded-2xl border border-slate-800 bg-slate-900 px-6 py-5"
+                      className="flex items-start gap-3.5 rounded-2xl border border-slate-800 bg-slate-900 p-4"
                     >
-                      <div className={`w-16 text-center text-3xl font-extrabold tabular-nums ${IST_RENK[r.istasyon]?.metin}`}>
+                      <div
+                        className={`grid h-14 w-14 shrink-0 place-items-center rounded-xl bg-slate-950/60 text-3xl font-extrabold tabular-nums ${IST_RENK[r.istasyon]?.metin}`}
+                      >
                         {r.adet}
                       </div>
-                      <div className="min-w-40 flex-1">
-                        <div className="text-lg font-extrabold">{r.ad}</div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-base font-extrabold leading-tight">{r.ad}</div>
                         {r.cipler.size > 0 && (
-                          <div className="mt-2 flex flex-wrap gap-1.5">
+                          <div className="mt-1.5 flex flex-wrap gap-1">
                             {[...r.cipler.entries()].map(([t, n]) => (
-                              <span key={t} className={`rounded-md px-2 py-1 text-[11px] font-semibold ${cipRenk(t)}`}>
+                              <span key={t} className={`rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${cipRenk(t)}`}>
                                 {n}× {t}
                               </span>
                             ))}
                           </div>
                         )}
-                        <div className="mt-2 flex flex-wrap gap-1.5">
+                        <div className="mt-1.5 flex flex-wrap gap-1">
                           {r.masalar.map((m, i) => (
-                            <span key={i} className="rounded-md bg-slate-800 px-2.5 py-1 text-[11px] font-semibold text-slate-400">
+                            <span key={i} className="rounded bg-slate-800 px-1.5 py-0.5 text-[11px] font-semibold text-slate-400">
                               {m}
                             </span>
                           ))}
@@ -667,6 +724,7 @@ export function MutfakClient({ initial }: { initial: MutfakSiparis[] }) {
               </div>
             ))}
         </main>
+      </div>
       </div>
 
       {/* BİLDİRİM (toast) */}

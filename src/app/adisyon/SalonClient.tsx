@@ -767,12 +767,13 @@ export function SalonClient({ initial }: { initial: SalonOzet | null }) {
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {/* Mutfak ekranı (KDS) — her boyutta erişilebilir (mutfak tableti) */}
+          {/* Mutfak ekranı (KDS) — her boyutta erişilebilir; mobilde de etiketli
+              (garson/mutfak personeli telefondan tek dokunuşla görsün) */}
           <Link
             href="/adisyon/mutfak"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-orange-500/40 px-2.5 py-1.5 text-sm font-semibold text-orange-300 hover:bg-orange-500/10 sm:px-3"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-orange-500/50 bg-orange-500/10 px-3 py-1.5 text-sm font-semibold text-orange-300 hover:bg-orange-500/20"
           >
-            🔥<span className="hidden sm:inline">Mutfak</span>
+            🔥<span>Mutfak</span>
           </Link>
           {/* Geçmiş / Gün Sonu / Krokiyi Düzenle: yönetim — yalnız md+ (kasa) */}
           <Link
